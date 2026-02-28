@@ -11,5 +11,11 @@
         { "key": "Expires", "value": "0" }
       ]
     }
+  ],
+  "crons": [
+    {
+      "path": "/api/jobs/process",
+      "schedule": "* * * * *"
+    }
   ]
 }

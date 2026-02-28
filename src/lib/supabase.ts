@@ -4,11 +4,11 @@ import { createClient } from '@supabase/supabase-js'
 // Set these in Vercel env vars:
 //   NEXT_PUBLIC_SUPABASE_URL
 //   NEXT_PUBLIC_SUPABASE_ANON_KEY
-const url = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
-const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
+const url = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co'
+const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'placeholder'
 
 export const supabase = createClient(url, key)
-export const isSupabaseConfigured = () => !!(url && key)
+export const isSupabaseConfigured = () => !!(process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY)
 
 // ── Database Types ──────────────────────────────────────
 export interface DbUser {
