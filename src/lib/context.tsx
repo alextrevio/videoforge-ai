@@ -230,7 +230,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       campaignId: data.campaignId,
       status: data.status || 'script',
       progress: data.progress || 0,
-      duration: data.duration || '0:45',
+      duration: data.duration || '1:00',
       scheduledAt: data.scheduledAt || 'Sin programar',
       views: 0,
       estimatedViews: data.estimatedViews || '10K',
@@ -321,7 +321,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
     // Generate video titles
     const titles = generateTitles(idea, ch.niche, count)
-    const durStr = `0:${duration.padStart(2, '0')}`
+    const durSec = parseInt(duration)
+    const durStr = durSec >= 60 ? `${Math.floor(durSec/60)}:${(durSec%60).toString().padStart(2,'0')}` : `0:${duration.padStart(2, '0')}`
 
     const newVideos = titles.map((title, i) => {
       const vid = addVideo({
