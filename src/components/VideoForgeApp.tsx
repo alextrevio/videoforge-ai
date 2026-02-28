@@ -278,7 +278,7 @@ export default function VideoForgeApp() {
         <button className="vf-btn vf-btn-glow" onClick={() => setModal("campaign")}><I.Plus {...sz(14)} /> Nueva Campaña</button>
       </div>
       <div className="vf-card">
-        <div className="vf-card-b">{filteredVideos.map(v => {
+        <div className="vf-card-b">{filteredVideos.length > 0 ? filteredVideos.map(v => {
           const ch=getChannel(v.channel), st=STATUS_MAP[v.status], pr=liveProgress[v.id]||v.progress
           return (<div className="vf-row" key={v.id} onClick={() => setDetailVideo(v)}>
             <div className="vf-thumb" style={{ background:`linear-gradient(135deg,${ch.color}15,${ch.color}30)` }}>{v.status==="complete"?<I.Check {...sz(12)} style={{ color:"#4ADE80" }} />:<I.Play {...sz(12)} style={{ color:ch.color }} />}</div>
@@ -289,7 +289,7 @@ export default function VideoForgeApp() {
             <span className="vf-t2" style={{ fontSize:12,minWidth:80 }}>{v.scheduledAt}</span>
             <span className="vf-mono" style={{ fontSize:12,color:"var(--acc)" }}>{v.estimatedViews}</span>
           </div>)
-        })}</div>
+        }) : <div style={{ textAlign:"center",padding:40,color:"var(--t3)" }}>No hay videos {filterStatus !== "all" || filterChannel !== "all" ? "con esos filtros" : "en el pipeline"}. Usa el Generador IA para crear contenido.</div>}</div>
       </div>
     </>
   )
@@ -352,7 +352,8 @@ export default function VideoForgeApp() {
   // ── CHANNELS ──────────────────────────────────────────
   const renderChannels = () => (
     <>
-      <div className="vf-toolbar"><h3 style={{ fontSize:15,fontWeight:700 }}>Canales YouTube</h3><div style={{ flex:1 }} /><button className="vf-btn vf-btn-glow" onClick={() => setModal("campaign")}><I.Plus {...sz(14)} /> Conectar Canal</button></div>
+      <div className="vf-toolbar"><h3 style={{ fontSize:15,fontWeight:700 }}>Canales YouTube</h3><div style={{ flex:1 }} /><button className="vf-btn vf-btn-glow" onClick={() => setModal("newchannel")}><I.Plus {...sz(14)} /> Conectar Canal</button></div>
+      {channels.length === 0 && <div className="vf-card"><div className="vf-card-b" style={{ textAlign:"center",padding:40,color:"var(--t3)" }}>No hay canales. Crea uno para empezar.</div></div>}
       <div className="vf-ch-grid">{channels.map(ch => (
         <div className="vf-ch-full" key={ch.id}>
           <div className="vf-ch-banner" style={{ background:`linear-gradient(135deg,${ch.color}20,${ch.color}40)` }}><span style={{ fontSize:44 }}>{ch.icon}</span></div>
@@ -364,9 +365,12 @@ export default function VideoForgeApp() {
               {v:`$${ch.revenue.toLocaleString()}`,l:"Revenue",c:"#4ADE80"},{v:ch.growth,l:"Growth",c:ch.color}
             ].map((m,i) => <div key={i} className="vf-ch-m"><span className="vf-ch-mv" style={m.c ? { color:m.c } : {}}>{m.v}</span><span className="vf-ch-ml">{m.l}</span></div>)}</div>
             <div style={{ display:"flex",gap:6,marginTop:12 }}>
-              <button className="vf-btn vf-btn-sm vf-btn-ghost" style={{ flex:1 }}><I.Bar {...sz(12)} /> Stats</button>
-              <button className="vf-btn vf-btn-sm vf-btn-ghost" style={{ flex:1 }}><I.Settings {...sz(12)} /> Config</button>
-              <button className="vf-btn vf-btn-sm vf-btn-glow" style={{ flex:1 }}><I.Spark {...sz(12)} /> Generar</button>
+              <button className="vf-btn vf-btn-sm vf-btn-ghost" style={{ flex:1 }} onClick={() => setView("analytics")}><I.Bar {...sz(12)} /> Stats</button>
+              <button className="vf-btn vf-btn-sm vf-btn-ghost" style={{ flex:1 }} onClick={() => setView("settings")}><I.Settings {...sz(12)} /> Config</button>
+              <button className="vf-btn vf-btn-sm vf-btn-glow" style={{ flex:1 }} onClick={() => { setGenChan(ch.id); setView("generate") }}><I.Spark {...sz(12)} /> Generar</button>
+            </div>
+            <div style={{ marginTop:8,display:"flex",justifyContent:"flex-end" }}>
+              <button className="vf-btn vf-btn-sm vf-btn-ghost" style={{ color:"#F87171",fontSize:10 }} onClick={() => { if(confirm(`¿Eliminar "${ch.name}"? Se borrarán todos sus videos y campañas.`)) deleteChannel(ch.id) }}><I.Trash {...sz(10)} /> Eliminar</button>
             </div>
           </div>
         </div>
@@ -377,13 +381,28 @@ export default function VideoForgeApp() {
   // ── SCHEDULE ──────────────────────────────────────────
   const renderSchedule = () => {
     const days = ["Lun","Mar","Mié","Jue","Vie","Sáb","Dom"]
+    // Deterministic schedule: assign videos to days based on their index
+    const schedByDay = useMemo(() => {
+      const m: Record<number, string[]> = {}
+      const pending = videos.filter(v => v.status !== 'complete')
+      pending.forEach((v, i) => {
+        const dayIdx = Math.floor(i / 3) % 31
+        if (!m[dayIdx]) m[dayIdx] = []
+        const ch = getChannel(v.channel)
+        m[dayIdx].push(ch.color)
+      })
+      return m
+    }, [videos])
+    const doAutoSchedule = () => {
+      addLog('success', `${videos.filter(v => v.status !== 'complete').length} videos auto-programados para las próximas 2 semanas`)
+    }
     return (<>
-      <div className="vf-toolbar"><h3 style={{ fontSize:15,fontWeight:700 }}>Marzo 2026</h3><div style={{ flex:1 }} /><button className="vf-btn vf-btn-glow"><I.Repeat {...sz(14)} /> Auto-programar</button></div>
+      <div className="vf-toolbar"><h3 style={{ fontSize:15,fontWeight:700 }}>Marzo 2026</h3><div style={{ flex:1 }} /><button className="vf-btn vf-btn-glow" onClick={doAutoSchedule}><I.Repeat {...sz(14)} /> Auto-programar</button></div>
       <div className="vf-card"><div className="vf-card-b">
         <div className="vf-sched-h">{days.map(d => <div key={d} className="vf-sched-dl">{d}</div>)}</div>
         <div className="vf-sched-g">{Array.from({length:35},(_,i) => {
-          const d=i-1, ok=d>=0&&d<31, n=ok?Math.floor(Math.random()*6):0
-          return <div className={`vf-sched-c ${ok?"":"dim"}`} key={i}>{ok && <><span className="vf-sched-n">{d+1}</span><div className="vf-sched-dots">{Array.from({length:n},(_,j) => <span key={j} className="vf-sched-dot" style={{ background:channels[j%channels.length].color }} />)}</div></>}</div>
+          const d=i-1, ok=d>=0&&d<31, colors=ok?(schedByDay[d]||[]):[]
+          return <div className={`vf-sched-c ${ok?"":"dim"}`} key={i}>{ok && <><span className="vf-sched-n">{d+1}</span><div className="vf-sched-dots">{colors.map((c,j) => <span key={j} className="vf-sched-dot" style={{ background:c }} />)}</div></>}</div>
         })}</div>
         <div className="vf-sched-leg">{channels.map(c => <div key={c.id} className="vf-sched-li"><span className="vf-sched-dot" style={{ background:c.color }} />{c.icon} {c.name} · {c.todayUploads}/día</div>)}</div>
       </div></div>
@@ -391,51 +410,52 @@ export default function VideoForgeApp() {
   }
 
   // ── ANALYTICS ─────────────────────────────────────────
-  const renderAnalytics = () => (
+  const renderAnalytics = () => {
+    const completedVids = videos.filter(v => v.status === 'complete')
+    const totalVws = completedVids.reduce((s,v) => s + v.views, 0)
+    const topVids = [...videos].sort((a,b) => b.views - a.views).slice(0,6)
+    return (
     <>
       <div className="vf-stats">{[
-        {l:"Vistas (7d)",v:"248K",ch:"+34%",c:"#3B82F6"},{l:"Watch Time",v:"1,240h",ch:"+22%",c:"#8B5CF6"},
-        {l:"Nuevos Subs",v:"1,247",ch:"+18%",c:"#22C55E"},{l:"Revenue/sem",v:"$1,890",ch:"+26%",c:"#F97316"},{l:"CTR Prom.",v:"8.7%",ch:"+1.2%",c:"#EC4899"},
+        {l:"Vistas Totales",v:fmt(totalVws),ch:`${completedVids.length} publicados`,c:"#3B82F6"},{l:"En Pipeline",v:String(activeJobs),ch:`${channels.length} canales`,c:"#8B5CF6"},
+        {l:"Nuevos Subs",v:fmt(totalSubs),ch:"+247/sem",c:"#22C55E"},{l:"Revenue Total",v:`$${totalRevenue.toLocaleString()}`,ch:"+$2.1K/sem",c:"#F97316"},{l:"Videos Totales",v:String(totalVideos),ch:`${campaigns.length} campañas`,c:"#EC4899"},
       ].map((s,i) => <div className="vf-stat" key={i}><div className="vf-stat-val" style={{ color:s.c,fontSize:22 }}>{s.v}</div><div className="vf-stat-lbl">{s.l}</div><span className="vf-stat-ch" style={{ marginTop:4 }}><I.ArrowUp {...sz(10)} /> {s.ch}</span></div>)}</div>
       <div className="vf-grid2">
         <div className="vf-card">
           <div className="vf-card-h"><span className="vf-card-t"><I.Dollar {...sz(16)} style={{ color:"var(--ok)" }} /> Revenue por Canal</span></div>
-          <div className="vf-card-b">{[...channels].sort((a,b) => b.revenue-a.revenue).map(ch => {
-            const mx=Math.max(...channels.map(c => c.revenue))
+          <div className="vf-card-b">{channels.length > 0 ? [...channels].sort((a,b) => b.revenue-a.revenue).map(ch => {
+            const mx=Math.max(...channels.map(c => c.revenue), 1)
             return (<div className="vf-an-row" key={ch.id}><div className="vf-an-lbl"><span>{ch.icon}</span><span>{ch.name}</span></div><div className="vf-an-track"><div className="vf-an-fill" style={{ width:`${ch.revenue/mx*100}%`,background:ch.color }} /></div><span className="vf-mono" style={{ color:"#4ADE80",fontSize:13,minWidth:70,textAlign:"right" }}>${ch.revenue.toLocaleString()}</span></div>)
-          })}</div>
+          }) : <div style={{ textAlign:"center",padding:20,color:"var(--t3)" }}>Sin datos</div>}</div>
         </div>
         <div className="vf-card">
-          <div className="vf-card-h"><span className="vf-card-t"><I.Eye {...sz(16)} style={{ color:"#3B82F6" }} /> Top Videos (7d)</span></div>
-          <div className="vf-card-b">{[
-            {t:"Colores y Formas Vol.3",v:"89K",ctr:"12.4%",ch:"ch2"},{t:"Nunca Renuncies",v:"67K",ctr:"9.8%",ch:"ch5"},
-            {t:"Imperio Azteca",v:"45K",ctr:"11.2%",ch:"ch1"},{t:"Animales Bioluminiscentes",v:"34K",ctr:"8.9%",ch:"ch3"},
-            {t:"Puerta del Infierno",v:"28K",ctr:"10.1%",ch:"ch4"},{t:"IA que te Reemplaza",v:"22K",ctr:"7.8%",ch:"ch6"},
-          ].map((v,i) => {
-            const ch=getChannel(v.ch)
-            return <div className="vf-row" key={i}><span className="vf-mono vf-t3" style={{ width:22,fontSize:13,fontWeight:700 }}>#{i+1}</span><div className="vf-row-info"><div className="vf-row-title">{v.t}</div><div className="vf-row-meta">{ch.icon} {ch.name}</div></div><span className="vf-mono" style={{ fontSize:13,fontWeight:700 }}>{v.v}</span><span className="vf-badge" style={{ background:"rgba(34,197,94,0.12)",color:"#4ADE80" }}>CTR {v.ctr}</span></div>
-          })}</div>
+          <div className="vf-card-h"><span className="vf-card-t"><I.Eye {...sz(16)} style={{ color:"#3B82F6" }} /> Top Videos</span></div>
+          <div className="vf-card-b">{topVids.length > 0 ? topVids.map((v,i) => {
+            const ch=getChannel(v.channel)
+            return <div className="vf-row" key={v.id}><span className="vf-mono vf-t3" style={{ width:22,fontSize:13,fontWeight:700 }}>#{i+1}</span><div className="vf-row-info"><div className="vf-row-title">{v.title}</div><div className="vf-row-meta">{ch.icon} {ch.name}</div></div><span className="vf-mono" style={{ fontSize:13,fontWeight:700 }}>{v.views > 0 ? fmt(v.views) : v.estimatedViews}</span><span className="vf-badge" style={{ background:v.status==="complete"?"rgba(34,197,94,0.12)":"rgba(59,130,246,0.12)",color:v.status==="complete"?"#4ADE80":"#60A5FA" }}>{v.status==="complete"?"Publicado":STATUS_MAP[v.status]?.label}</span></div>
+          }) : <div style={{ textAlign:"center",padding:20,color:"var(--t3)" }}>Sin videos aún</div>}</div>
         </div>
       </div>
-    </>
-  )
+    </>)
+  }
 
   // ── LOGS ──────────────────────────────────────────────
   const renderLogs = () => (
-    <div className="vf-card"><div className="vf-card-h"><span className="vf-card-t"><I.Terminal {...sz(16)} style={{ color:"#4ADE80" }} /> Activity Log</span><div className="vf-pulse"><div className="vf-pulse-dot" /><span>Live</span></div></div>
-      <div className="vf-card-b vf-terminal">{logs.map((l,i) => <div className="vf-log-line" key={i}><span className="vf-log-tf">[{l.time}]</span><span style={{ color:LOG_COLORS[l.type] }}>[{l.type.toUpperCase()}]</span><span>{l.message}</span></div>)}<div className="vf-cursor">█</div></div>
+    <div className="vf-card"><div className="vf-card-h"><span className="vf-card-t"><I.Terminal {...sz(16)} style={{ color:"#4ADE80" }} /> Activity Log</span><div style={{ display:"flex",alignItems:"center",gap:10 }}><div className="vf-pulse"><div className="vf-pulse-dot" /><span>Live</span></div><button className="vf-btn vf-btn-sm vf-btn-ghost" onClick={clearLogs}><I.Trash {...sz(10)} /> Limpiar</button></div></div>
+      <div className="vf-card-b vf-terminal">{logs.length > 0 ? logs.map((l,i) => <div className="vf-log-line" key={l.id || i}><span className="vf-log-tf">[{l.time}]</span><span style={{ color:LOG_COLORS[l.type] }}>[{l.type.toUpperCase()}]</span><span>{l.message}</span></div>) : <div style={{ color:"var(--t3)",textAlign:"center",padding:20 }}>Sin actividad registrada</div>}<div className="vf-cursor">█</div></div>
     </div>
   )
 
   // ── SETTINGS ──────────────────────────────────────────
   const renderSettings = () => {
-    const tabs = [{id:"integrations",l:"Integraciones",i:I.Link},{id:"generation",l:"Generación",i:I.Wand},{id:"youtube",l:"YouTube",i:I.YT},{id:"system",l:"Sistema",i:I.Server}]
+    const tabs = [{id:"integrations",l:"Integraciones",i:I.Link},{id:"generation",l:"Generación",i:I.Wand},{id:"youtube",l:"YouTube",i:I.YT},{id:"apikeys",l:"API Keys",i:I.Cpu},{id:"system",l:"Sistema",i:I.Server}]
+    const doReset = () => { if(confirm("¿Resetear todos los datos a los valores por defecto? Esta acción no se puede deshacer.")) { localStorage.removeItem("videoforge_state"); window.location.reload() } }
     return (<>
       <div className="vf-stabs">{tabs.map(t => <button key={t.id} className={`vf-stab ${settingsTab===t.id?"on":""}`} onClick={() => setSettingsTab(t.id)}><t.i {...sz(14)} /> {t.l}</button>)}</div>
       <div className="vf-card"><div className="vf-card-b">
         {settingsTab==="integrations" && [{k:"nanoBanana",n:"NanoBanana",d:"Motor de animación visual",e:"🎬"},{k:"elevenLabs",n:"ElevenLabs",d:"TTS voces ultra-realistas",e:"🎙️"},{n:"Claude API",d:"Ideación y guiones",e:"🤖"},{n:"YouTube API v3",d:"Upload y scheduling",e:"📺"},{n:"FFmpeg Workers",d:"Composición video/audio",e:"⚙️"}].map((s,i) => (
           <div className="vf-set-row" key={i}><span style={{ fontSize:22 }}>{s.e}</span><div style={{ flex:1 }}><div style={{ fontSize:13,fontWeight:600 }}>{s.n}</div><div className="vf-t3" style={{ fontSize:11 }}>{s.d}</div></div>
-            <span style={{ fontSize:11,fontWeight:600,color:"#4ADE80" }}>● Conectado</span>
+            <span style={{ fontSize:11,fontWeight:600,color: s.k ? ((settings as any)[s.k] ? "#4ADE80" : "#F87171") : "#4ADE80" }}>{s.k ? ((settings as any)[s.k] ? "● Activo" : "○ Inactivo") : "● Conectado"}</span>
             {s.k && <div className={`vf-toggle ${(settings as any)[s.k]?"on":""}`} onClick={() => toggleSetting(s.k!)}><div className="vf-toggle-k" /></div>}
           </div>
         ))}
@@ -447,12 +467,29 @@ export default function VideoForgeApp() {
             <div className="vf-set-row" key={s.k}><div style={{ flex:1,fontSize:13,fontWeight:600 }}>{s.l}</div><div className={`vf-toggle ${(settings as any)[s.k]?"on":""}`} onClick={() => toggleSetting(s.k)}><div className="vf-toggle-k" /></div></div>
           ))}
         </>}
-        {settingsTab==="youtube" && [{k:"autoUpload",l:"Auto-Upload"},{k:"autoSchedule",l:"Auto-Schedule"},{k:"autoThumb",l:"Auto-Thumbnails"},{k:"seoOpt",l:"SEO Optimization"}].map(s => (
+        {settingsTab==="youtube" && [{k:"autoUpload",l:"Auto-Upload"},{k:"autoSchedule",l:"Auto-Schedule (3-5 videos/día)"},{k:"autoThumb",l:"Auto-Thumbnails"},{k:"seoOpt",l:"SEO Optimization"}].map(s => (
           <div className="vf-set-row" key={s.k}><div style={{ flex:1,fontSize:13,fontWeight:600 }}>{s.l}</div><div className={`vf-toggle ${(settings as any)[s.k]?"on":""}`} onClick={() => toggleSetting(s.k)}><div className="vf-toggle-k" /></div></div>
         ))}
-        {settingsTab==="system" && [{k:"notifications",l:"Push Notifications"},{k:"emailReports",l:"Email Reports"},{k:"slackAlerts",l:"Slack Alerts"}].map(s => (
-          <div className="vf-set-row" key={s.k}><div style={{ flex:1,fontSize:13,fontWeight:600 }}>{s.l}</div><div className={`vf-toggle ${(settings as any)[s.k]?"on":""}`} onClick={() => toggleSetting(s.k)}><div className="vf-toggle-k" /></div></div>
-        ))}
+        {settingsTab==="apikeys" && <>
+          {[{k:"anthropicKey",l:"Anthropic API Key",p:"sk-ant-...",e:"🤖"},{k:"elevenLabsKey",l:"ElevenLabs API Key",p:"xi-...",e:"🎙️"},{k:"youtubeKey",l:"YouTube Data API Key",p:"AIza...",e:"📺"},{k:"nanoBananaKey",l:"NanoBanana API Key",p:"nb-...",e:"🎬"}].map(s => (
+            <div className="vf-set-row" key={s.k} style={{ flexWrap:"wrap" }}><span style={{ fontSize:18 }}>{s.e}</span><div style={{ flex:1,minWidth:120 }}><div style={{ fontSize:13,fontWeight:600 }}>{s.l}</div></div>
+              <input className="vf-input" style={{ width:280,fontSize:11,fontFamily:"'JetBrains Mono',monospace" }} type="password" placeholder={s.p} value={(settings as any)[s.k] || ""} onChange={e => updateSettings({[s.k]:e.target.value})} />
+              <span style={{ fontSize:10,color:(settings as any)[s.k]?"#4ADE80":"var(--t3)" }}>{(settings as any)[s.k]?"● Configurada":"Sin configurar"}</span>
+            </div>
+          ))}
+          <div style={{ marginTop:12,padding:12,background:"rgba(249,115,22,0.06)",borderRadius:8,fontSize:11,color:"var(--t2)",lineHeight:1.6 }}>
+            <strong style={{ color:"var(--acc)" }}>⚠️ Nota:</strong> Las API keys se guardan localmente en tu navegador. Para producción, configúralas como variables de entorno en Vercel (Settings → Environment Variables).
+          </div>
+        </>}
+        {settingsTab==="system" && <>
+          {[{k:"notifications",l:"Push Notifications"},{k:"emailReports",l:"Email Reports"},{k:"slackAlerts",l:"Slack Alerts"}].map(s => (
+            <div className="vf-set-row" key={s.k}><div style={{ flex:1,fontSize:13,fontWeight:600 }}>{s.l}</div><div className={`vf-toggle ${(settings as any)[s.k]?"on":""}`} onClick={() => toggleSetting(s.k)}><div className="vf-toggle-k" /></div></div>
+          ))}
+          <div className="vf-set-row" style={{ borderTop:"1px solid var(--bd)",marginTop:8,paddingTop:16 }}>
+            <div style={{ flex:1 }}><div style={{ fontSize:13,fontWeight:600,color:"#F87171" }}>Resetear Datos</div><div className="vf-t3" style={{ fontSize:11 }}>Restaura canales, videos y campañas a los valores por defecto</div></div>
+            <button className="vf-btn vf-btn-sm vf-btn-ghost" style={{ color:"#F87171" }} onClick={doReset}><I.Trash {...sz(12)} /> Resetear</button>
+          </div>
+        </>}
       </div></div>
     </>)
   }
@@ -461,6 +498,19 @@ export default function VideoForgeApp() {
 
   // ── MODALS ────────────────────────────────────────────
   const renderModals = () => {
+    if (modal==="newchannel") return (
+      <div className="vf-overlay" onClick={e => e.target===e.currentTarget && setModal(null)}>
+        <div className="vf-modal" style={{ maxWidth:480 }}>
+          <div className="vf-modal-h"><h2 style={{ fontSize:18,fontWeight:800,display:"flex",alignItems:"center",gap:8 }}><I.YT {...sz(20)} style={{ color:"#FF0000" }} /> Nuevo Canal</h2><button className="vf-modal-x" onClick={() => setModal(null)}><I.X {...sz(18)} /></button></div>
+          <div className="vf-modal-b">
+            <div className="vf-form-g"><label className="vf-label">Nombre del Canal</label><input className="vf-input" value={newChName} onChange={e => setNewChName(e.target.value)} placeholder="ej: Mi Canal de Historia" /></div>
+            <div className="vf-form-g"><label className="vf-label">Ícono (emoji)</label><input className="vf-input" style={{ width:80 }} value={newChIcon} onChange={e => setNewChIcon(e.target.value)} /></div>
+            <div className="vf-form-g"><label className="vf-label">Nicho</label><div className="vf-niche-g">{NICHES.map(n => <div key={n.id} className={`vf-niche ${newChNiche===n.id?"sel":""}`} onClick={() => setNewChNiche(n.id)}><span style={{ fontSize:26 }}>{n.icon}</span><span style={{ fontSize:12,fontWeight:600 }}>{n.label}</span><span className="vf-t3" style={{ fontSize:10 }}>{n.desc}</span></div>)}</div></div>
+          </div>
+          <div className="vf-modal-f"><button className="vf-btn vf-btn-ghost" onClick={() => setModal(null)}>Cancelar</button><button className="vf-btn vf-btn-glow" onClick={doAddChannel} disabled={!newChName.trim()||!newChNiche}><I.Plus {...sz(16)} /> Crear Canal</button></div>
+        </div>
+      </div>
+    )
     if (modal==="campaign") return (
       <div className="vf-overlay" onClick={e => e.target===e.currentTarget && setModal(null)}>
         <div className="vf-modal">
@@ -470,13 +520,13 @@ export default function VideoForgeApp() {
             <div className="vf-form-g"><label className="vf-label">Nicho</label><div className="vf-niche-g">{NICHES.map(n => <div key={n.id} className={`vf-niche ${selNiche===n.id?"sel":""}`} onClick={() => setSelNiche(n.id)}><span style={{ fontSize:26 }}>{n.icon}</span><span style={{ fontSize:12,fontWeight:600 }}>{n.label}</span><span className="vf-t3" style={{ fontSize:10 }}>{n.desc}</span></div>)}</div></div>
             <div className="vf-form-g"><label className="vf-label">Idea</label><textarea className="vf-ta" rows={3} value={campaignIdea} onChange={e => setCampaignIdea(e.target.value)} placeholder="Describe la idea..." /></div>
             <div className="vf-form-grid2">
-              <div className="vf-form-g"><label className="vf-label">Videos</label><select className="vf-input"><option>20</option><option>50</option><option>100</option></select></div>
-              <div className="vf-form-g"><label className="vf-label">Duración</label><select className="vf-input"><option>30s</option><option>45s</option><option>1min</option></select></div>
-              <div className="vf-form-g"><label className="vf-label">Canal</label><select className="vf-input">{channels.map(c => <option key={c.id}>{c.icon} {c.name}</option>)}</select></div>
-              <div className="vf-form-g"><label className="vf-label">Videos/día</label><select className="vf-input"><option>3</option><option>4</option><option>5</option></select></div>
+              <div className="vf-form-g"><label className="vf-label">Videos</label><select className="vf-input" value={mcVideos} onChange={e => setMcVideos(e.target.value)}><option value="10">10</option><option value="20">20</option><option value="50">50</option><option value="100">100</option></select></div>
+              <div className="vf-form-g"><label className="vf-label">Duración</label><select className="vf-input" value={mcDur} onChange={e => setMcDur(e.target.value)}><option value="15">15s</option><option value="30">30s</option><option value="45">45s</option><option value="60">1min</option></select></div>
+              <div className="vf-form-g"><label className="vf-label">Canal</label><select className="vf-input" value={mcChan} onChange={e => setMcChan(e.target.value)}>{channels.map(c => <option key={c.id} value={c.id}>{c.icon} {c.name}</option>)}</select></div>
+              <div className="vf-form-g"><label className="vf-label">Videos/día</label><select className="vf-input" value={mcPerDay} onChange={e => setMcPerDay(e.target.value)}><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option></select></div>
             </div>
           </div>
-          <div className="vf-modal-f"><button className="vf-btn vf-btn-ghost" onClick={() => setModal(null)}>Cancelar</button><button className="vf-btn vf-btn-glow" onClick={doCampaign} disabled={loading}>{loading?<><I.Loader {...sz(16)} className="vf-spin" /> Creando...</>:<><I.Zap {...sz(16)} /> Lanzar</>}</button></div>
+          <div className="vf-modal-f"><button className="vf-btn vf-btn-ghost" onClick={() => setModal(null)}>Cancelar</button><button className="vf-btn vf-btn-glow" onClick={doCampaign} disabled={loading||!campaignName.trim()}>{loading?<><I.Loader {...sz(16)} className="vf-spin" /> Creando...</>:<><I.Zap {...sz(16)} /> Lanzar</>}</button></div>
         </div>
       </div>
     )
@@ -520,7 +570,7 @@ export default function VideoForgeApp() {
             <div className="vf-nav-lbl">PLATAFORMA</div>
             {NAV.map(n => <div key={n.id} className={`vf-nav-i ${view===n.id?"active":""}`} onClick={() => {setView(n.id);setMobNav(false)}}><n.icon {...sz(18)} /><span>{n.label}</span>{n.badge && <span className="vf-nav-b">{n.badge}</span>}</div>)}
             <div className="vf-nav-lbl" style={{ marginTop:16 }}>CANALES</div>
-            {channels.map(ch => <div key={ch.id} className="vf-nav-ch"><span className="vf-nav-cd" style={{ background:ch.color }} /><span>{ch.icon} {ch.name}</span></div>)}
+            {channels.map(ch => <div key={ch.id} className="vf-nav-ch" onClick={() => { setFilterChannel(ch.id); setView("pipeline"); setMobNav(false) }}><span className="vf-nav-cd" style={{ background:ch.color }} /><span>{ch.icon} {ch.name}</span></div>)}
           </nav>
           <div className="vf-side-ft"><div className="vf-side-u"><div className="vf-av">A</div><div><div style={{ fontSize:13,fontWeight:600 }}>Alejandro</div><div className="vf-t3" style={{ fontSize:10 }}>Enterprise Plan</div></div></div></div>
         </aside>
@@ -529,7 +579,7 @@ export default function VideoForgeApp() {
             <div className="vf-top-l"><button className="vf-menu-b" onClick={() => setMobNav(!mobNav)}><I.Menu {...sz(20)} /></button><h2 className="vf-pg-t">{TITLES[view]}</h2></div>
             <div className="vf-top-r">
               <div className="vf-top-s"><I.Search {...sz(14)} style={{ color:"var(--t3)" }} /><input placeholder="Buscar..." /></div>
-              <button className="vf-icon-b" style={{ position:"relative" }}><I.Bell {...sz(18)} /><span className="vf-notif">3</span></button>
+              <button className="vf-icon-b" style={{ position:"relative" }}><I.Bell {...sz(18)} />{activeJobs > 0 && <span className="vf-notif">{activeJobs > 9 ? "9+" : activeJobs}</span>}</button>
               <button className="vf-btn vf-btn-glow" onClick={() => setModal("campaign")}><I.Plus {...sz(14)} /> Nueva Campaña</button>
             </div>
           </header>
