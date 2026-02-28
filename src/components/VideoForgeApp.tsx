@@ -269,18 +269,23 @@ export default function VideoForgeApp() {
         <div className="vf-gen-bg" />
         <div className="vf-gen-ct">
           <div className="vf-gen-top">
-            <div><h3 className="vf-gen-title"><I.Spark {...sz(20)} style={{ color:"#F97316" }} /> Generación Rápida</h3><p className="vf-t2" style={{ fontSize:12,marginTop:4 }}>Escribe una idea y genera contenido para cualquier canal</p></div>
+            <div><h3 className="vf-gen-title"><I.Spark {...sz(20)} style={{ color:"#F97316" }} /> Generación Rápida</h3><p className="vf-t2" style={{ fontSize:12,marginTop:4 }}>Escribe una idea → se generan <strong style={{color:"var(--t1)"}}>videos de 1 min completos</strong> automáticamente</p></div>
             <div className="vf-pulse"><div className="vf-pulse-dot" /><span>Engine Activo</span></div>
           </div>
           <div className="vf-gen-row">
-            <input className="vf-gen-in" value={genIdea} onChange={e => setGenIdea(e.target.value)} placeholder="Tu idea... ej: 'Los 10 inventos más locos de la historia'" onKeyDown={e => e.key==="Enter" && doGen()} />
+            <input className="vf-gen-in" value={genIdea} onChange={e => setGenIdea(e.target.value)} placeholder="Ej: 'Los 10 inventos más locos de la historia'" onKeyDown={e => e.key==="Enter" && doGen()} />
             <select className="vf-gen-sel" value={genChan} onChange={e => setGenChan(e.target.value)}>{channels.map(c => <option key={c.id} value={c.id}>{c.icon} {c.name}</option>)}</select>
-            <button className="vf-btn vf-btn-glow" onClick={doGen} disabled={loading||!genIdea.trim()}>{loading ? <><I.Loader {...sz(16)} className="vf-spin" /> ...</> : <><I.Zap {...sz(16)} /> Generar</>}</button>
+            <button className="vf-btn vf-btn-glow" onClick={doGen} disabled={loading||!genIdea.trim()}>{loading ? <><I.Loader {...sz(16)} className="vf-spin" /> Generando...</> : <><I.Zap {...sz(16)} /> Generar {genCount} Videos</>}</button>
           </div>
-          <div className="vf-tags">{[
-            {id:"animation",l:"Animación",e:"🎬"},{id:"narration",l:"Narración IA",e:"🎙️"},{id:"subtitles",l:"Subtítulos",e:"💬"},
-            {id:"music",l:"Música",e:"🎵"},{id:"thumbnail",l:"Thumbnail",e:"🖼️"},{id:"seo",l:"SEO",e:"🔍"},
-          ].map(t => <button key={t.id} className={`vf-tag ${genOpts.includes(t.id)?"on":""}`} onClick={() => toggleOpt(t.id)}>{t.e} {t.l}</button>)}</div>
+          <div style={{ display:"flex",alignItems:"center",gap:14,marginTop:8 }}>
+            <span className="vf-t3" style={{ fontSize:11 }}>Duración: <strong style={{color:"var(--t2)"}}>{genDur === "60" ? "1 min" : genDur + "s"}</strong></span>
+            <span className="vf-t3" style={{ fontSize:11 }}>·</span>
+            <span className="vf-t3" style={{ fontSize:11 }}>Videos: <strong style={{color:"var(--t2)"}}>{genCount}</strong></span>
+            <span className="vf-t3" style={{ fontSize:11 }}>·</span>
+            <span className="vf-t3" style={{ fontSize:11 }}>Publicar: <strong style={{color:"var(--t2)"}}>{genPerDay}/día</strong></span>
+            <span className="vf-t3" style={{ fontSize:11 }}>·</span>
+            <button onClick={() => setView("generate")} style={{ background:"none",border:"none",color:"var(--acc)",cursor:"pointer",fontFamily:"inherit",fontSize:11,fontWeight:600 }}>Más opciones →</button>
+          </div>
         </div>
       </div>
 
