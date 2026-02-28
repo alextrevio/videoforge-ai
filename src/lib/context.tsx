@@ -189,40 +189,38 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (!loaded) return
     const iv = setInterval(() => {
       const today = nowDate()
-      channels.forEach(ch => {
-        if (!ch.autopilot || !ch.autopilotIdea) return
-        // Count how many videos are scheduled for today or later
-        const futureVids = videos.filter(v =>
-          v.channelId === ch.id && v.scheduledDate >= today && v.status !== 'published'
-        )
-        // If less than perDay * 3 days buffer, generate more
-        const buffer = ch.autopilotPerDay * 3
-        if (futureVids.length < buffer) {
+      setVideos(prev => {
+        let newVids: VideoItem[] = []
+        channels.forEach(ch => {
+          if (!ch.autopilot || !ch.autopilotIdea) return
+          const futureVids = prev.filter(v =>
+            v.channelId === ch.id && v.scheduledDate >= today && v.status !== 'published'
+          )
+          const buffer = ch.autopilotPerDay * 3
+          if (futureVids.length >= buffer) return
           const need = buffer - futureVids.length
           const idea = pickRandomIdea(ch.niche) + ' ' + ch.autopilotIdea
           const titles = generateTitles(idea, ch.niche, need)
-          // Find the last scheduled date to continue from there
           const lastDate = futureVids.length > 0
             ? futureVids.sort((a,b) => b.scheduledDate.localeCompare(a.scheduledDate))[0].scheduledDate
             : today
           const base = new Date(lastDate)
           base.setDate(base.getDate() + 1)
           const baseStr = base.toISOString().split('T')[0]
-
           titles.forEach((title, i) => {
-            const v: VideoItem = {
+            newVids.push({
               id: genId('vid'), title, description: `${ch.autopilotIdea} — Auto`, tags: [ch.niche],
               script: '', channelId: ch.id, status: 'script' as VideoStatus, progress: 0,
               duration: fmtDur(ch.autopilotDuration), scheduledDate: scheduleDate(baseStr, i, ch.autopilotPerDay),
               scheduledTime: scheduleTime(i, ch.autopilotPerDay), platforms: ch.autopilotPlatforms, createdAt: today,
-            }
-            setVideos(p => [...p, v])
+            })
           })
-        }
+        })
+        return newVids.length > 0 ? [...prev, ...newVids] : prev
       })
-    }, 20000) // Check every 20s
+    }, 30000) // Check every 30s
     return () => clearInterval(iv)
-  }, [loaded, channels, videos])
+  }, [loaded, channels])
 
   // ── Channel ───────────────────────────────────────────
   const addChannel = useCallback((d: Pick<Channel,'name'|'platform'|'niche'|'icon'|'color'> & Partial<Channel>) => {

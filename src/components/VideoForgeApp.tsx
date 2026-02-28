@@ -76,9 +76,13 @@ export default function VideoForgeApp() {
     setTimeout(()=>setToasts(p=>p.filter(t=>t.id!==id)),3000)
   }
 
-  // Auto-select first channel when available
+  // Auto-select first channel when available / cleanup dead genChan
   useEffect(() => {
-    if (!genChan && channels.length > 0) setGenChan(channels[0].id)
+    if (channels.length > 0) {
+      if (!genChan || !channels.find(c => c.id === genChan)) setGenChan(channels[0].id)
+    } else {
+      setGenChan('')
+    }
   }, [channels, genChan])
 
   // Live progress tick
@@ -149,7 +153,28 @@ export default function VideoForgeApp() {
   const doSaveEdit = () => {
     if (!detailVid) return
     updateVideo(detailVid.id, { title: editTitle, description: editDesc, scheduledDate: editDate, scheduledTime: editTime })
-    toast('💾 Video actualizado')
+    toast('💾 Video guardado')
+    setDetailVid(null)
+  }
+
+  const doAdvance = () => {
+    if (!detailVid) return
+    advanceVideo(detailVid.id)
+    toast('⏩ Video avanzado al siguiente paso')
+    setDetailVid(null)
+  }
+
+  const doPublish = () => {
+    if (!detailVid) return
+    publishVideo(detailVid.id)
+    toast('🚀 Video publicado')
+    setDetailVid(null)
+  }
+
+  const doDeleteVideo = () => {
+    if (!detailVid) return
+    deleteVideo(detailVid.id)
+    toast('🗑️ Video eliminado')
     setDetailVid(null)
   }
 
@@ -248,7 +273,7 @@ export default function VideoForgeApp() {
 
             {/* Generate */}
             <button className="vf-btn vf-btn-glow" style={{width:'100%',padding:16,fontSize:15,justifyContent:'center',borderRadius:12}} onClick={doGenerate} disabled={loading||!genIdea.trim()||!genChan}>
-              {loading ? <><span className="vf-spin" style={{display:'inline-flex'}}>{I.Loader(20)}</span> Generando {genCount} videos...</> : <>{I.Zap(20)} Crear {genCount} Videos de {fmtDur(genDur)}</>}
+              {loading ? <><span style={{display:'inline-flex',animation:'spin 1s linear infinite'}}>{I.Loader(20)}</span> Generando {genCount} videos...</> : <>{I.Zap(20)} Crear {genCount} Videos de {fmtDur(genDur)}</>}
             </button>
           </div>
         </div>
@@ -530,11 +555,11 @@ export default function VideoForgeApp() {
               <div style={{display:'flex',gap:6,fontSize:12,color:'var(--t3)',marginTop:8}}><span>Canal: {ch?`${PLATFORMS[ch.platform].icon} ${ch.name}`:'—'}</span><span>·</span><span>Duración: {v.duration}</span><span>·</span><span style={{color:st.color,fontWeight:600}}>Estado: {st.label}</span></div>
             </div>
             <div className="vf-modal-f">
-              <button className="vf-btn vf-btn-ghost" style={{color:'#F87171'}} onClick={()=>{deleteVideo(v.id);setDetailVid(null)}}>{I.Trash(14)} Eliminar</button>
+              <button className="vf-btn vf-btn-ghost" style={{color:'#F87171'}} onClick={doDeleteVideo}>{I.Trash(14)} Eliminar</button>
               <div style={{flex:1}}/>
-              {v.status!=='published'&&v.status!=='scheduled'&&<button className="vf-btn vf-btn-ghost" onClick={()=>{advanceVideo(v.id);setDetailVid(null)}}>{I.Right(14)} Avanzar</button>}
-              {v.status==='review'&&<button className="vf-btn vf-btn-ghost" onClick={()=>{advanceVideo(v.id);setDetailVid(null)}}>{I.Calendar(14)} Programar</button>}
-              {v.status==='scheduled'&&<button className="vf-btn vf-btn-glow" onClick={()=>{publishVideo(v.id);setDetailVid(null)}}>{I.Send(14)} Publicar Ahora</button>}
+              {v.status!=='published'&&v.status!=='scheduled'&&v.status!=='review'&&<button className="vf-btn vf-btn-ghost" onClick={doAdvance}>{I.Right(14)} Avanzar</button>}
+              {v.status==='review'&&<button className="vf-btn vf-btn-ghost" onClick={doAdvance}>{I.Calendar(14)} Programar</button>}
+              {v.status==='scheduled'&&<button className="vf-btn vf-btn-glow" onClick={doPublish}>{I.Send(14)} Publicar Ahora</button>}
               <button className="vf-btn vf-btn-glow" onClick={doSaveEdit}>{I.Check(14)} Guardar</button>
             </div>
           </div>
