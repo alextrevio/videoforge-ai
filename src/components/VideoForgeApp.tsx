@@ -666,7 +666,7 @@ export default function VideoForgeApp() {
             <div className="vf-top-l"><button className="vf-menu-b" onClick={() => setMobNav(!mobNav)}><I.Menu {...sz(20)} /></button><h2 className="vf-pg-t">{TITLES[view]}</h2></div>
             <div className="vf-top-r">
               <div className="vf-top-s"><I.Search {...sz(14)} style={{ color:"var(--t3)" }} /><input placeholder="Buscar..." value={search} onChange={e => { setSearch(e.target.value); if(view !== "pipeline") setView("pipeline") }} /></div>
-              <button className="vf-icon-b" style={{ position:"relative" }}><I.Bell {...sz(18)} />{activeJobs > 0 && <span className="vf-notif">{activeJobs > 9 ? "9+" : activeJobs}</span>}</button>
+              <button className="vf-icon-b" style={{ position:"relative" }} onClick={() => setView("logs")}><I.Bell {...sz(18)} />{activeJobs > 0 && <span className="vf-notif">{activeJobs > 9 ? "9+" : activeJobs}</span>}</button>
               <button className="vf-btn vf-btn-glow" onClick={() => setModal("campaign")}><I.Plus {...sz(14)} /> Nueva Campaña</button>
             </div>
           </header>
