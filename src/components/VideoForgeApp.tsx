@@ -26,7 +26,9 @@ const I = {
   Loader: (s=18) => sv('M21 12a9 9 0 11-6.219-8.56',s),
 }
 
-export default function VideoForgeApp() {
+interface VFProps { user: { id: string; email: string; name: string }; onLogout: () => void }
+
+export default function VideoForgeApp({ user, onLogout }: VFProps) {
   const app = useApp()
   const { channels, videos, settings,
     addChannel, updateChannel, deleteChannel,
@@ -594,6 +596,11 @@ export default function VideoForgeApp() {
             </div>)}
             {channels.length>0&&<><div className="vf-nav-lbl" style={{marginTop:16}}>MIS CANALES</div>{channels.map(ch=><div key={ch.id} className="vf-nav-ch" onClick={()=>{setFilterChannel(ch.id);setView('videos');setMobNav(false)}}><span className="vf-nav-cd" style={{background:ch.color}}/><span>{PLATFORMS[ch.platform].icon} {ch.name}</span></div>)}</>}
           </nav>
+          <div style={{padding:'12px 14px',borderTop:'1px solid var(--bd)',display:'flex',alignItems:'center',gap:8}}>
+            <div style={{width:30,height:30,borderRadius:8,background:'linear-gradient(135deg,#F97316,#A855F7)',display:'flex',alignItems:'center',justifyContent:'center',color:'#fff',fontSize:12,fontWeight:800}}>{user.name?.[0]?.toUpperCase()||user.email[0].toUpperCase()}</div>
+            <div style={{flex:1,minWidth:0}}><div style={{fontSize:12,fontWeight:600,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{user.name||user.email}</div><div style={{fontSize:9,color:'var(--t3)'}}>Pro Plan</div></div>
+            <button onClick={onLogout} style={{background:'none',border:'none',color:'var(--t3)',cursor:'pointer',padding:4,borderRadius:6,fontSize:11}} title="Cerrar sesión">{I.X(14)}</button>
+          </div>
         </aside>
         <main className="vf-main">
           <header className="vf-top">
