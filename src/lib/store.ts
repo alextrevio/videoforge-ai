@@ -8,6 +8,9 @@ export type VideoStatus = 'script' | 'voiceover' | 'visuals' | 'editing' | 'thum
 export interface Channel {
   id: string; name: string; platform: Platform; niche: string
   icon: string; color: string; status: 'active' | 'paused'; createdAt: string
+  // Autopilot
+  autopilot: boolean; autopilotIdea: string; autopilotPerDay: number
+  autopilotDuration: string; autopilotPlatforms: Platform[]
 }
 
 export interface VideoItem {

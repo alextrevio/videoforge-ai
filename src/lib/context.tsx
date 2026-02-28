@@ -45,10 +45,30 @@ function scheduleTime(index: number, perDay: number) {
 // ── Status Order ────────────────────────────────────────
 const STATUS_ORDER: VideoStatus[] = ['script','voiceover','visuals','editing','thumbnail','review','scheduled','published']
 
+// ── Idea Generation for Autopilot ───────────────────────
+const IDEA_SEEDS: Record<string, string[]> = {
+  history:['civilizaciones perdidas','batallas épicas','imperios antiguos','inventos que cambiaron todo','misterios históricos','reyes y reinas','revoluciones','descubrimientos arqueológicos','grandes migraciones','culturas olvidadas'],
+  kids:['animales del océano','colores del arcoíris','números y formas','planetas del sistema solar','dinosaurios','estaciones del año','instrumentos musicales','frutas y verduras','partes del cuerpo','medios de transporte'],
+  facts:['el cuerpo humano','el espacio','animales raros','la tecnología','el océano profundo','los volcanes','el cerebro','récords mundiales','fenómenos naturales','inventos accidentales'],
+  horror:['casas embrujadas reales','desapariciones inexplicables','criaturas del bosque','leyendas urbanas','lugares malditos','avistamientos extraños','rituales prohibidos','pueblos fantasma','expediciones perdidas','objetos malditos'],
+  motivation:['hábitos de éxito','mentalidad ganadora','superar el fracaso','disciplina diaria','emprendimiento','liderazgo','productividad','metas y sueños','resiliencia','confianza en ti mismo'],
+  tech:['inteligencia artificial','robots del futuro','gadgets increíbles','apps revolucionarias','ciberseguridad','realidad virtual','drones','impresión 3D','autos eléctricos','tecnología espacial'],
+  lifestyle:['rutinas matutinas','organización del hogar','viajes baratos','recetas rápidas','ejercicio en casa','moda sostenible','meditación','minimalismo','productividad personal','bienestar mental'],
+  finance:['inversiones para principiantes','ahorro inteligente','criptomonedas','ingresos pasivos','errores financieros','emprender con poco','impuestos','bienes raíces','libertad financiera','presupuesto personal'],
+  gaming:['juegos indie','trucos secretos','speedruns épicos','historia de los videojuegos','mejores jefes finales','juegos retro','esports','juegos cooperativos','easter eggs','juegos gratuitos'],
+  other:['datos curiosos','cosas que no sabías','misterios sin resolver','comparaciones increíbles','top 10','antes y después','predicciones del futuro','errores famosos','coincidencias imposibles','experimentos locos'],
+}
+
+function pickRandomIdea(niche: string): string {
+  const seeds = IDEA_SEEDS[niche] || IDEA_SEEDS.other
+  return seeds[Math.floor(Math.random() * seeds.length)]
+}
+
 // ── Context Type ────────────────────────────────────────
 interface Ctx {
   channels: Channel[]; videos: VideoItem[]; settings: AppSettings
-  addChannel: (d: Pick<Channel,'name'|'platform'|'niche'|'icon'|'color'>) => Channel
+  addChannel: (d: Pick<Channel,'name'|'platform'|'niche'|'icon'|'color'> & Partial<Channel>) => Channel
+  updateChannel: (id: string, d: Partial<Channel>) => void
   deleteChannel: (id: string) => void
   addVideo: (d: Partial<VideoItem> & { title: string; channelId: string }) => VideoItem
   updateVideo: (id: string, d: Partial<VideoItem>) => void
@@ -102,13 +122,32 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setVideos(prev => {
         let changed = false
         const next = prev.map(v => {
-          if (v.status === 'published' || v.status === 'review' || v.status === 'scheduled') return v
-          if (Math.random() > 0.7) {
-            const idx = STATUS_ORDER.indexOf(v.status)
-            if (idx >= 0 && idx < 5) { // auto up to review, then manual
-              changed = true
-              const ns = STATUS_ORDER[idx + 1]
-              return { ...v, status: ns, progress: Math.min(v.progress + 15, ns === 'review' ? 85 : 95) }
+          if (v.status === 'published') return v
+          // Check if channel has autopilot
+          const ch = channels.find(c => c.id === v.channelId)
+          const isAutopilot = ch?.autopilot
+          // Autopilot: skip review, go all the way to scheduled
+          if (isAutopilot) {
+            if (v.status === 'scheduled') return v // wait for publish time
+            if (Math.random() > 0.65) {
+              const idx = STATUS_ORDER.indexOf(v.status)
+              if (idx >= 0 && idx < STATUS_ORDER.length - 1) {
+                changed = true
+                let ns = STATUS_ORDER[idx + 1]
+                if (ns === 'review') ns = 'scheduled' // skip review for autopilot
+                return { ...v, status: ns, progress: ns === 'scheduled' ? 90 : Math.min(v.progress + 15, 95) }
+              }
+            }
+          } else {
+            // Manual: stop at review
+            if (v.status === 'review' || v.status === 'scheduled') return v
+            if (Math.random() > 0.7) {
+              const idx = STATUS_ORDER.indexOf(v.status)
+              if (idx >= 0 && idx < 5) {
+                changed = true
+                const ns = STATUS_ORDER[idx + 1]
+                return { ...v, status: ns, progress: Math.min(v.progress + 15, ns === 'review' ? 85 : 95) }
+              }
             }
           }
           return v
@@ -117,13 +156,89 @@ export function AppProvider({ children }: { children: ReactNode }) {
       })
     }, 5000)
     return () => clearInterval(iv)
-  }, [loaded, settings.autoAdvance])
+  }, [loaded, settings.autoAdvance, channels])
+
+  // Autopilot: auto-publish scheduled videos when their date/time arrives
+  useEffect(() => {
+    if (!loaded) return
+    const iv = setInterval(() => {
+      const now = new Date()
+      const today = now.toISOString().split('T')[0]
+      const nowTime = `${now.getHours().toString().padStart(2,'0')}:${now.getMinutes().toString().padStart(2,'0')}`
+      setVideos(prev => {
+        let changed = false
+        const next = prev.map(v => {
+          if (v.status !== 'scheduled') return v
+          const ch = channels.find(c => c.id === v.channelId)
+          if (!ch?.autopilot) return v
+          // Publish if date <= today and time <= now
+          if (v.scheduledDate <= today && v.scheduledTime <= nowTime) {
+            changed = true
+            return { ...v, status: 'published' as VideoStatus, progress: 100, publishedAt: today }
+          }
+          return v
+        })
+        return changed ? next : prev
+      })
+    }, 10000)
+    return () => clearInterval(iv)
+  }, [loaded, channels])
+
+  // Autopilot: generate new videos daily for autopilot channels
+  useEffect(() => {
+    if (!loaded) return
+    const iv = setInterval(() => {
+      const today = nowDate()
+      channels.forEach(ch => {
+        if (!ch.autopilot || !ch.autopilotIdea) return
+        // Count how many videos are scheduled for today or later
+        const futureVids = videos.filter(v =>
+          v.channelId === ch.id && v.scheduledDate >= today && v.status !== 'published'
+        )
+        // If less than perDay * 3 days buffer, generate more
+        const buffer = ch.autopilotPerDay * 3
+        if (futureVids.length < buffer) {
+          const need = buffer - futureVids.length
+          const idea = pickRandomIdea(ch.niche) + ' ' + ch.autopilotIdea
+          const titles = generateTitles(idea, ch.niche, need)
+          // Find the last scheduled date to continue from there
+          const lastDate = futureVids.length > 0
+            ? futureVids.sort((a,b) => b.scheduledDate.localeCompare(a.scheduledDate))[0].scheduledDate
+            : today
+          const base = new Date(lastDate)
+          base.setDate(base.getDate() + 1)
+          const baseStr = base.toISOString().split('T')[0]
+
+          titles.forEach((title, i) => {
+            const v: VideoItem = {
+              id: genId('vid'), title, description: `${ch.autopilotIdea} — Auto`, tags: [ch.niche],
+              script: '', channelId: ch.id, status: 'script' as VideoStatus, progress: 0,
+              duration: fmtDur(ch.autopilotDuration), scheduledDate: scheduleDate(baseStr, i, ch.autopilotPerDay),
+              scheduledTime: scheduleTime(i, ch.autopilotPerDay), platforms: ch.autopilotPlatforms, createdAt: today,
+            }
+            setVideos(p => [...p, v])
+          })
+        }
+      })
+    }, 20000) // Check every 20s
+    return () => clearInterval(iv)
+  }, [loaded, channels, videos])
 
   // ── Channel ───────────────────────────────────────────
-  const addChannel = useCallback((d: Pick<Channel,'name'|'platform'|'niche'|'icon'|'color'>) => {
-    const ch: Channel = { ...d, id: genId('ch'), status: 'active', createdAt: nowDate() }
+  const addChannel = useCallback((d: Pick<Channel,'name'|'platform'|'niche'|'icon'|'color'> & Partial<Channel>) => {
+    const ch: Channel = {
+      id: genId('ch'), name: d.name, platform: d.platform, niche: d.niche,
+      icon: d.icon, color: d.color, status: 'active', createdAt: nowDate(),
+      autopilot: d.autopilot ?? false, autopilotIdea: d.autopilotIdea ?? '',
+      autopilotPerDay: d.autopilotPerDay ?? 3, autopilotDuration: d.autopilotDuration ?? '60',
+      autopilotPlatforms: d.autopilotPlatforms ?? [d.platform],
+    }
     setChannels(p => [...p, ch])
     return ch
+  }, [])
+
+  const updateChannel = useCallback((id: string, d: Partial<Channel>) => {
+    setChannels(p => p.map(c => c.id === id ? { ...c, ...d } : c))
   }, [])
 
   const deleteChannel = useCallback((id: string) => {
@@ -201,7 +316,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   return <AppContext.Provider value={{
     channels, videos, settings,
-    addChannel, deleteChannel,
+    addChannel, updateChannel, deleteChannel,
     addVideo, updateVideo, deleteVideo, advanceVideo, publishVideo,
     generateVideos, updateSettings, resetAll,
   }}>{children}</AppContext.Provider>

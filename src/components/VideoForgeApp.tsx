@@ -29,7 +29,7 @@ const I = {
 export default function VideoForgeApp() {
   const app = useApp()
   const { channels, videos, settings,
-    addChannel, deleteChannel,
+    addChannel, updateChannel, deleteChannel,
     addVideo, updateVideo, deleteVideo, advanceVideo, publishVideo,
     generateVideos, updateSettings, resetAll
   } = app
@@ -56,6 +56,10 @@ export default function VideoForgeApp() {
   const [ncPlatform, setNcPlatform] = useState<Platform>('youtube')
   const [ncNiche, setNcNiche] = useState('')
   const [ncIcon, setNcIcon] = useState('')
+  const [ncAutopilot, setNcAutopilot] = useState(true)
+  const [ncIdea, setNcIdea] = useState('')
+  const [ncPerDay, setNcPerDay] = useState(3)
+  const [ncDur, setNcDur] = useState('60')
 
   // Detail
   const [detailVid, setDetailVid] = useState<VideoItem|null>(null)
@@ -130,10 +134,16 @@ export default function VideoForgeApp() {
   const doAddChannel = () => {
     if (!ncName.trim() || !ncNiche) return
     const niche = NICHES.find(n => n.id === ncNiche)
-    const ch = addChannel({ name: ncName, platform: ncPlatform, niche: ncNiche, icon: ncIcon || niche?.icon || '📺', color: niche?.color || '#666' })
+    const ch = addChannel({
+      name: ncName, platform: ncPlatform, niche: ncNiche,
+      icon: ncIcon || niche?.icon || '📺', color: niche?.color || '#666',
+      autopilot: ncAutopilot, autopilotIdea: ncIdea,
+      autopilotPerDay: ncPerDay, autopilotDuration: ncDur,
+      autopilotPlatforms: [ncPlatform],
+    })
     setGenChan(ch.id)
-    toast(`📺 Canal "${ncName}" creado`)
-    setNcName(''); setNcNiche(''); setNcIcon(''); setModal(null)
+    toast(`📺 Canal "${ncName}" creado${ncAutopilot ? ' con Autopilot 🤖' : ''}`)
+    setNcName(''); setNcNiche(''); setNcIcon(''); setNcIdea(''); setNcAutopilot(true); setModal(null)
   }
 
   const doSaveEdit = () => {
@@ -392,12 +402,23 @@ export default function VideoForgeApp() {
           <div className="vf-ch-body">
             <div style={{display:'flex',justifyContent:'space-between',alignItems:'start',marginBottom:10}}>
               <div><h4 style={{fontSize:15,fontWeight:700}}>{ch.name}</h4><span style={{fontSize:11,color:'var(--t3)'}}>{PLATFORMS[ch.platform].icon} {PLATFORMS[ch.platform].label} · {niche?.label||ch.niche}</span></div>
+              {ch.autopilot && <span style={{fontSize:10,fontWeight:700,padding:'3px 8px',borderRadius:6,background:'rgba(249,115,22,0.12)',color:'#F97316',display:'flex',alignItems:'center',gap:4}}>🤖 Autopilot</span>}
             </div>
             <div style={{display:'flex',gap:16,marginBottom:12}}>
               <div style={{textAlign:'center'}}><div style={{fontSize:18,fontWeight:800,fontFamily:"'JetBrains Mono',monospace"}}>{vids.length}</div><div style={{fontSize:9,color:'var(--t3)',textTransform:'uppercase'}}>Total</div></div>
               <div style={{textAlign:'center'}}><div style={{fontSize:18,fontWeight:800,fontFamily:"'JetBrains Mono',monospace",color:'#4ADE80'}}>{published}</div><div style={{fontSize:9,color:'var(--t3)',textTransform:'uppercase'}}>Publicados</div></div>
               <div style={{textAlign:'center'}}><div style={{fontSize:18,fontWeight:800,fontFamily:"'JetBrains Mono',monospace",color:'#8B5CF6'}}>{pending}</div><div style={{fontSize:9,color:'var(--t3)',textTransform:'uppercase'}}>En proceso</div></div>
+              {ch.autopilot && <div style={{textAlign:'center'}}><div style={{fontSize:18,fontWeight:800,fontFamily:"'JetBrains Mono',monospace",color:'#F97316'}}>{ch.autopilotPerDay}</div><div style={{fontSize:9,color:'var(--t3)',textTransform:'uppercase'}}>Por día</div></div>}
             </div>
+            {/* Autopilot toggle */}
+            <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:10,padding:'8px 10px',background:ch.autopilot?'rgba(249,115,22,0.06)':'var(--bg2)',borderRadius:8,border:`1px solid ${ch.autopilot?'rgba(249,115,22,0.15)':'var(--bd)'}`}}>
+              <span style={{fontSize:14}}>🤖</span>
+              <span style={{flex:1,fontSize:12,fontWeight:600,color:ch.autopilot?'var(--acc)':'var(--t3)'}}>Autopilot {ch.autopilot?'ON':'OFF'}</span>
+              <div className={`vf-toggle ${ch.autopilot?'on':''}`} onClick={()=>updateChannel(ch.id,{autopilot:!ch.autopilot})}><div className="vf-toggle-k"/></div>
+            </div>
+            {ch.autopilot && ch.autopilotIdea && <div style={{fontSize:11,color:'var(--t3)',marginBottom:10,padding:'6px 10px',background:'var(--bg2)',borderRadius:6}}>
+              Tema: <strong style={{color:'var(--t2)'}}>{ch.autopilotIdea}</strong> · {fmtDur(ch.autopilotDuration)}/video
+            </div>}
             <div style={{display:'flex',gap:6}}>
               <button className="vf-btn vf-btn-sm vf-btn-glow" style={{flex:1}} onClick={()=>{setGenChan(ch.id);setView('create')}}>{I.Spark(12)} Crear Videos</button>
               <button className="vf-btn vf-btn-sm vf-btn-ghost" style={{flex:1}} onClick={()=>{setFilterChannel(ch.id);setView('videos')}}>{I.Layers(12)} Ver Videos</button>
@@ -431,10 +452,10 @@ export default function VideoForgeApp() {
   const renderModals = () => {
     if (modal==='channel') return (
       <div className="vf-overlay" onClick={e=>e.target===e.currentTarget&&setModal(null)}>
-        <div className="vf-modal" style={{maxWidth:500}}>
+        <div className="vf-modal" style={{maxWidth:540}}>
           <div className="vf-modal-h"><h2 style={{fontSize:18,fontWeight:800}}>Nuevo Canal</h2><button className="vf-modal-x" onClick={()=>setModal(null)}>{I.X(18)}</button></div>
           <div className="vf-modal-b">
-            <div className="vf-form-g"><label className="vf-label">Nombre</label><input className="vf-input" value={ncName} onChange={e=>setNcName(e.target.value)} placeholder="Mi Canal" /></div>
+            <div className="vf-form-g"><label className="vf-label">Nombre del canal</label><input className="vf-input" value={ncName} onChange={e=>setNcName(e.target.value)} placeholder="Mi Canal" /></div>
             <div className="vf-form-g"><label className="vf-label">Plataforma</label>
               <div style={{display:'flex',gap:8}}>{(Object.entries(PLATFORMS) as [Platform, typeof PLATFORMS[Platform]][]).map(([k,p])=>
                 <button key={k} onClick={()=>setNcPlatform(k)} style={{flex:1,display:'flex',flexDirection:'column',alignItems:'center',gap:4,padding:'12px 8px',borderRadius:10,border:`2px solid ${ncPlatform===k?p.color:'var(--bd)'}`,background:ncPlatform===k?`${p.color}12`:'var(--bg2)',color:ncPlatform===k?p.color:'var(--t2)',cursor:'pointer',fontFamily:'inherit',fontSize:11,fontWeight:600,transition:'all .15s'}}>
@@ -449,8 +470,37 @@ export default function VideoForgeApp() {
                 </div>
               )}</div>
             </div>
+
+            {/* Autopilot Section */}
+            <div style={{marginTop:8,padding:16,background:'rgba(249,115,22,0.04)',border:'1px solid rgba(249,115,22,0.12)',borderRadius:12}}>
+              <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:ncAutopilot?14:0}}>
+                <div style={{display:'flex',alignItems:'center',gap:8}}>
+                  <span style={{fontSize:20}}>🤖</span>
+                  <div><div style={{fontSize:14,fontWeight:700}}>Autopilot</div><div style={{fontSize:11,color:'var(--t3)'}}>Genera y publica videos automáticamente todos los días</div></div>
+                </div>
+                <div className={`vf-toggle ${ncAutopilot?'on':''}`} onClick={()=>setNcAutopilot(!ncAutopilot)}><div className="vf-toggle-k"/></div>
+              </div>
+              {ncAutopilot && <>
+                <div className="vf-form-g" style={{marginBottom:10}}><label className="vf-label">Tema general del canal</label>
+                  <input className="vf-input" value={ncIdea} onChange={e=>setNcIdea(e.target.value)} placeholder="Ej: civilizaciones antiguas, misterios del océano, inventos locos..." />
+                </div>
+                <div className="vf-form-grid2">
+                  <div className="vf-form-g" style={{marginBottom:0}}><label className="vf-label">Videos por día</label>
+                    <select className="vf-input" value={ncPerDay} onChange={e=>setNcPerDay(Number(e.target.value))}>
+                      {[1,2,3,4,5].map(n=><option key={n} value={n}>{n} video{n>1?'s':''}/día</option>)}
+                    </select>
+                  </div>
+                  <div className="vf-form-g" style={{marginBottom:0}}><label className="vf-label">Duración</label>
+                    <select className="vf-input" value={ncDur} onChange={e=>setNcDur(e.target.value)}>
+                      <option value="30">30 seg</option><option value="45">45 seg</option>
+                      <option value="60">1 minuto</option><option value="90">1:30 min</option>
+                    </select>
+                  </div>
+                </div>
+              </>}
+            </div>
           </div>
-          <div className="vf-modal-f"><button className="vf-btn vf-btn-ghost" onClick={()=>setModal(null)}>Cancelar</button><button className="vf-btn vf-btn-glow" onClick={doAddChannel} disabled={!ncName.trim()||!ncNiche}>{I.Plus(16)} Crear</button></div>
+          <div className="vf-modal-f"><button className="vf-btn vf-btn-ghost" onClick={()=>setModal(null)}>Cancelar</button><button className="vf-btn vf-btn-glow" onClick={doAddChannel} disabled={!ncName.trim()||!ncNiche}>{I.Plus(16)} Crear Canal</button></div>
         </div>
       </div>
     )
