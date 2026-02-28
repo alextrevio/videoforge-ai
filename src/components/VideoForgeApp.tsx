@@ -64,6 +64,19 @@ export default function VideoForgeApp() {
   const [editDate, setEditDate] = useState('')
   const [editTime, setEditTime] = useState('')
 
+  // Toast
+  const [toasts, setToasts] = useState<{id:string;msg:string}[]>([])
+  const toast = (msg:string) => {
+    const id = Math.random().toString(36).slice(2)
+    setToasts(p=>[...p,{id,msg}])
+    setTimeout(()=>setToasts(p=>p.filter(t=>t.id!==id)),3000)
+  }
+
+  // Auto-select first channel when available
+  useEffect(() => {
+    if (!genChan && channels.length > 0) setGenChan(channels[0].id)
+  }, [channels, genChan])
+
   // Live progress tick
   useEffect(() => {
     const iv = setInterval(() => {
@@ -107,6 +120,7 @@ export default function VideoForgeApp() {
     setLoading(true)
     setTimeout(() => {
       generateVideos(genIdea, genChan, genCount, genDur, genPerDay, genPlatforms as string[])
+      toast(`✅ ${genCount} videos creados`)
       setLoading(false)
       setGenIdea('')
       setView('videos')
@@ -116,14 +130,16 @@ export default function VideoForgeApp() {
   const doAddChannel = () => {
     if (!ncName.trim() || !ncNiche) return
     const niche = NICHES.find(n => n.id === ncNiche)
-    addChannel({ name: ncName, platform: ncPlatform, niche: ncNiche, icon: ncIcon || niche?.icon || '📺', color: niche?.color || '#666' })
+    const ch = addChannel({ name: ncName, platform: ncPlatform, niche: ncNiche, icon: ncIcon || niche?.icon || '📺', color: niche?.color || '#666' })
+    setGenChan(ch.id)
+    toast(`📺 Canal "${ncName}" creado`)
     setNcName(''); setNcNiche(''); setNcIcon(''); setModal(null)
-    if (!genChan) setGenChan(channels[channels.length-1]?.id || '')
   }
 
   const doSaveEdit = () => {
     if (!detailVid) return
     updateVideo(detailVid.id, { title: editTitle, description: editDesc, scheduledDate: editDate, scheduledTime: editTime })
+    toast('💾 Video actualizado')
     setDetailVid(null)
   }
 
@@ -222,7 +238,7 @@ export default function VideoForgeApp() {
 
             {/* Generate */}
             <button className="vf-btn vf-btn-glow" style={{width:'100%',padding:16,fontSize:15,justifyContent:'center',borderRadius:12}} onClick={doGenerate} disabled={loading||!genIdea.trim()||!genChan}>
-              {loading ? <>{I.Loader(20)} <span className="vf-spin" style={{display:'inline-flex'}}>{I.Loader(20)}</span> Generando {genCount} videos...</> : <>{I.Zap(20)} Crear {genCount} Videos de {fmtDur(genDur)}</>}
+              {loading ? <><span className="vf-spin" style={{display:'inline-flex'}}>{I.Loader(20)}</span> Generando {genCount} videos...</> : <>{I.Zap(20)} Crear {genCount} Videos de {fmtDur(genDur)}</>}
             </button>
           </div>
         </div>
@@ -516,6 +532,9 @@ export default function VideoForgeApp() {
           <div className="vf-ct">{renderView()}</div>
         </main>
         {renderModals()}
+        {toasts.length>0&&<div style={{position:'fixed',bottom:20,right:20,zIndex:300,display:'flex',flexDirection:'column',gap:8}}>{toasts.map(t=>
+          <div key={t.id} style={{background:'rgba(34,197,94,0.95)',color:'#fff',padding:'10px 18px',borderRadius:10,fontSize:13,fontWeight:600,boxShadow:'0 8px 24px rgba(0,0,0,0.4)',animation:'su .3s cubic-bezier(.4,0,.2,1)'}}>{t.msg}</div>
+        )}</div>}
       </div>
     </>
   )
