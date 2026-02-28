@@ -129,6 +129,7 @@ export default function VideoForgeApp() {
       generateFromIdea(genIdea, genChan, genCount, genDur, parseInt(genPerDay), genOpts)
       setLoading(false)
       setGenIdea("")
+      showToast(`${genCount} videos generados exitosamente`)
     }, 1500)
   }
 
@@ -150,6 +151,7 @@ export default function VideoForgeApp() {
       setCampaignName("")
       setCampaignIdea("")
       setSelNiche(null)
+      showToast(`Campaña lanzada con ${mcVideos} videos`)
     }, 1500)
   }
 
@@ -167,6 +169,7 @@ export default function VideoForgeApp() {
     setNewChNiche("")
     setNewChIcon("📺")
     setModal(null)
+    showToast(`Canal "${newChName}" creado`)
   }
 
   const doSaveEditCampaign = () => {
@@ -185,6 +188,7 @@ export default function VideoForgeApp() {
     setCampaignName("")
     setCampaignIdea("")
     setModal(null)
+    showToast('Campaña actualizada')
   }
 
   const doSaveEditVideo = () => {
@@ -193,9 +197,33 @@ export default function VideoForgeApp() {
     addLog('info', `Video "${editVideoTitle}" actualizado`)
     setDetailVideo(null)
     setModal(null)
+    showToast('Video actualizado')
   }
 
   const settings = appSettings
+
+  // Toast notifications
+  const [toasts, setToasts] = useState<{id:string,msg:string,type:string}[]>([])
+  const showToast = (msg: string, type='success') => {
+    const id = Date.now().toString()
+    setToasts(p => [...p, {id,msg,type}])
+    setTimeout(() => setToasts(p => p.filter(t => t.id !== id)), 3000)
+  }
+
+  // Keyboard shortcuts
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLSelectElement) return
+      if (e.key === 'Escape') { setModal(null); setDetailVideo(null) }
+      if (e.ctrlKey || e.metaKey) {
+        if (e.key === 'g') { e.preventDefault(); setView('generate') }
+        if (e.key === 'p') { e.preventDefault(); setView('pipeline') }
+        if (e.key === 'n') { e.preventDefault(); setModal('campaign') }
+      }
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [])
 
   const getChannel = (id: string) => channels.find(c => c.id === id) || channels[0]
   const fmt = (n: number) => n >= 1e6 ? (n/1e6).toFixed(1)+"M" : n >= 1e3 ? (n/1e3).toFixed(1)+"K" : String(n)
@@ -332,7 +360,7 @@ export default function VideoForgeApp() {
           <p className="vf-t2" style={{ marginBottom:20,lineHeight:1.7,fontSize:13 }}>Describe una idea → el sistema genera guiones, narración, animaciones, edición, thumbnails, SEO y sube los videos programados.</p>
           <div className="vf-form-g"><label className="vf-label">Idea / Prompt Principal</label><textarea className="vf-ta" rows={4} value={genIdea} onChange={e => setGenIdea(e.target.value)} placeholder="Ej: 'Serie de 50 videos sobre civilizaciones antiguas misteriosas. 45 seg, animación documental, narración dramática, música épica.'" /></div>
           <div className="vf-form-grid4">
-            <div className="vf-form-g"><label className="vf-label">Canal</label><select className="vf-input" value={genChan} onChange={e => setGenChan(e.target.value)}>{channels.map(c => <option key={c.id} value={c.id}>{c.icon} {c.name}</option>)}<option value="new">+ Nuevo canal</option></select></div>
+            <div className="vf-form-g"><label className="vf-label">Canal</label><select className="vf-input" value={genChan} onChange={e => { if(e.target.value==="new"){setModal("newchannel")}else{setGenChan(e.target.value)} }}>{channels.map(c => <option key={c.id} value={c.id}>{c.icon} {c.name}</option>)}<option value="new">+ Nuevo canal</option></select></div>
             <div className="vf-form-g"><label className="vf-label">Videos</label><select className="vf-input" value={genCount} onChange={e => setGenCount(Number(e.target.value))}>{[5,10,20,50,100].map(n => <option key={n} value={n}>{n} videos</option>)}</select></div>
             <div className="vf-form-g"><label className="vf-label">Duración</label><select className="vf-input" value={genDur} onChange={e => setGenDur(e.target.value)}><option value="15">15 seg</option><option value="30">30 seg</option><option value="45">45 seg</option><option value="60">1 min</option></select></div>
             <div className="vf-form-g"><label className="vf-label">Videos/día</label><select className="vf-input" value={genPerDay} onChange={e => setGenPerDay(e.target.value)}>{[1,2,3,4,5].map(n => <option key={n} value={String(n)}>{n}/día</option>)}</select></div>
@@ -646,6 +674,11 @@ export default function VideoForgeApp() {
         </main>
         {mobNav && <div className="vf-mob-ov" onClick={() => setMobNav(false)} />}
         {renderModals()}
+        {toasts.length > 0 && <div style={{ position:"fixed",bottom:24,right:24,zIndex:300,display:"flex",flexDirection:"column",gap:8 }}>{toasts.map(t => (
+          <div key={t.id} style={{ background:t.type==="error"?"rgba(239,68,68,0.95)":"rgba(34,197,94,0.95)",color:"#fff",padding:"10px 18px",borderRadius:10,fontSize:13,fontWeight:600,boxShadow:"0 8px 24px rgba(0,0,0,0.4)",animation:"su .3s cubic-bezier(.4,0,.2,1)",display:"flex",alignItems:"center",gap:8 }}>
+            {t.type==="error"?<I.X {...sz(14)} />:<I.Check {...sz(14)} />} {t.msg}
+          </div>
+        ))}</div>}
       </div>
     </>
   )
