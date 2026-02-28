@@ -163,21 +163,22 @@ export function AppProvider({ children }: { children: ReactNode }) {
         let changed = false
         const next = prev.map(v => {
           if (v.status === 'complete' || v.status === 'error') return v
-          // Random chance to advance (simulates processing)
-          if (Math.random() > 0.92) {
+          // ~25% chance to advance each tick (visible progress)
+          if (Math.random() > 0.75) {
             const order: VideoItem['status'][] = ['script','generating','voiceover','compositing','rendering','thumbnail','uploading','complete']
             const idx = order.indexOf(v.status)
             if (idx >= 0 && idx < order.length - 1) {
               changed = true
-              const next = order[idx + 1]
-              return { ...v, status: next, progress: next === 'complete' ? 100 : Math.min(v.progress + 20, 95) }
+              const nextStatus = order[idx + 1]
+              const nextProgress = nextStatus === 'complete' ? 100 : Math.min(v.progress + 15 + Math.floor(Math.random() * 10), 95)
+              return { ...v, status: nextStatus, progress: nextProgress, ...(nextStatus === 'complete' ? { publishedAt: new Date().toISOString().split('T')[0], views: Math.floor(Math.random() * 50000 + 1000) } : {}) }
             }
           }
           return v
         })
         return changed ? next : prev
       })
-    }, 8000)
+    }, 4000)
     return () => clearInterval(iv)
   }, [loaded])
 

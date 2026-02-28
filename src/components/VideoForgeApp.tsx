@@ -72,7 +72,7 @@ export default function VideoForgeApp() {
   const [genIdea, setGenIdea] = useState("")
   const [genChan, setGenChan] = useState(channels[1]?.id || "ch2")
   const [genCount, setGenCount] = useState(20)
-  const [genDur, setGenDur] = useState("45")
+  const [genDur, setGenDur] = useState("60")
   const [genPerDay, setGenPerDay] = useState("3")
   const [genOpts, setGenOpts] = useState(["animation","narration","subtitles","thumbnail","seo"])
   const [loading, setLoading] = useState(false)
@@ -332,59 +332,127 @@ export default function VideoForgeApp() {
         <select className="vf-sel" value={filterStatus} onChange={e => setFilterStatus(e.target.value)}><option value="all">Todos</option>{Object.entries(STATUS_MAP).map(([k,v]) => <option key={k} value={k}>{v.label}</option>)}</select>
         <select className="vf-sel" value={filterChannel} onChange={e => setFilterChannel(e.target.value)}><option value="all">Canales</option>{channels.map(c => <option key={c.id} value={c.id}>{c.icon} {c.name}</option>)}</select>
         <div style={{ flex:1 }} /><span className="vf-t3" style={{ fontSize:12 }}>{filteredVideos.length} videos</span>
-        <button className="vf-btn vf-btn-glow" onClick={() => setModal("campaign")}><I.Plus {...sz(14)} /> Nueva Campaña</button>
+        <button className="vf-btn vf-btn-glow" onClick={() => setView("generate")}><I.Spark {...sz(14)} /> Generar Videos</button>
       </div>
+
+      {/* Stage counters */}
+      <div style={{ display:"flex",gap:8,marginBottom:16,flexWrap:"wrap" }}>{STEPS.slice(0,8).map((s,i) => {
+        const statusKeys = ['script','generating','voiceover','compositing','rendering','thumbnail','uploading','complete']
+        const count = videos.filter(v => v.status === statusKeys[i]).length
+        return <div key={i} style={{ display:"flex",alignItems:"center",gap:6,background:"var(--bg1)",border:"1px solid var(--bd)",borderRadius:8,padding:"6px 12px",fontSize:11 }}>
+          <span style={{ fontSize:16 }}>{s.icon}</span>
+          <span style={{ fontWeight:600 }}>{s.label}</span>
+          <span className="vf-mono" style={{ color:count>0?s.color:"var(--t3)",fontWeight:700 }}>{count}</span>
+        </div>
+      })}</div>
+
       <div className="vf-card">
         <div className="vf-card-b">{filteredVideos.length > 0 ? filteredVideos.map(v => {
           const ch=getChannel(v.channel), st=STATUS_MAP[v.status], pr=liveProgress[v.id]||v.progress
-          return (<div className="vf-row" key={v.id} onClick={() => setDetailVideo(v)}>
+          const stepIdx = st?.order ?? 0
+          return (<div className="vf-row" key={v.id} onClick={() => setDetailVideo(v)} style={{ cursor:"pointer",padding:"10px 0" }}>
             <div className="vf-thumb" style={{ background:`linear-gradient(135deg,${ch.color}15,${ch.color}30)` }}>{v.status==="complete"?<I.Check {...sz(12)} style={{ color:"#4ADE80" }} />:<I.Play {...sz(12)} style={{ color:ch.color }} />}</div>
-            <div className="vf-row-info" style={{ flex:3 }}><div className="vf-row-title">{v.title}</div><div className="vf-row-meta">{ch.icon} {ch.name} · {v.duration}</div></div>
-            <div className="vf-bar-w" style={{ width:100 }}><div className="vf-bar-f" style={{ width:`${pr}%`, background:pr>=100?"var(--ok)":"linear-gradient(90deg,var(--acc),var(--acc2))" }} /></div>
-            <span className="vf-mono vf-t3" style={{ fontSize:11,width:32 }}>{Math.round(pr)}%</span>
-            <span className="vf-badge" style={{ background:st.bg,color:st.color }}>{st.label}</span>
-            <span className="vf-t2" style={{ fontSize:12,minWidth:80 }}>{v.scheduledAt}</span>
-            <span className="vf-mono" style={{ fontSize:12,color:"var(--acc)" }}>{v.estimatedViews}</span>
+            <div className="vf-row-info" style={{ flex:2 }}><div className="vf-row-title">{v.title}</div><div className="vf-row-meta">{ch.icon} {ch.name} · {v.duration}</div></div>
+            {/* Stage icons */}
+            <div style={{ display:"flex",alignItems:"center",gap:3,minWidth:130 }}>
+              {STEPS.slice(0,8).map((s,i) => {
+                const done = i < stepIdx
+                const current = i === stepIdx
+                return <span key={i} style={{ fontSize:current?15:done?13:10,opacity:done?0.9:current?1:0.15,transition:"all .4s",filter:current?"drop-shadow(0 0 4px "+st.color+")":"none" }} title={s.label}>{s.icon}</span>
+              })}
+            </div>
+            <div className="vf-bar-w" style={{ width:80 }}><div className="vf-bar-f" style={{ width:`${pr}%`, background:pr>=100?"var(--ok)":`linear-gradient(90deg,${st.color},${st.color}66)`,transition:"width .5s" }} /></div>
+            <span className="vf-mono" style={{ fontSize:11,width:30,color:st.color }}>{Math.round(pr)}%</span>
+            <span className="vf-badge" style={{ background:st.bg,color:st.color,minWidth:85,textAlign:"center" }}>{st.label}</span>
+            <span className="vf-t2" style={{ fontSize:11,minWidth:75 }}>{v.scheduledAt}</span>
           </div>)
-        }) : <div style={{ textAlign:"center",padding:40,color:"var(--t3)" }}>No hay videos {filterStatus !== "all" || filterChannel !== "all" ? "con esos filtros" : "en el pipeline"}. Usa el Generador IA para crear contenido.</div>}</div>
+        }) : <div style={{ textAlign:"center",padding:40,color:"var(--t3)" }}>No hay videos {filterStatus !== "all" || filterChannel !== "all" ? "con esos filtros" : "en el pipeline"}. <button onClick={() => setView("generate")} style={{ background:"none",border:"none",color:"var(--acc)",cursor:"pointer",fontWeight:700,fontFamily:"inherit",fontSize:13,textDecoration:"underline" }}>Genera videos automáticamente</button></div>}</div>
       </div>
     </>
   )
 
   // ── GENERATOR ─────────────────────────────────────────
-  const renderGenerate = () => (
+  const renderGenerate = () => {
+    // Recently generated videos (last 60 seconds of activity)
+    const recentlyGenerated = videos.filter(v => v.status !== 'complete').slice(0, 8)
+    return (
     <>
       <div className="vf-gen-hero">
         <div className="vf-gen-bg" /><div className="vf-gen-ct">
-          <h2 style={{ fontSize:20,fontWeight:800,display:"flex",alignItems:"center",gap:10,marginBottom:8 }}><I.Spark {...sz(24)} style={{ color:"#F97316" }} /> Motor de Generación Masiva</h2>
-          <p className="vf-t2" style={{ marginBottom:20,lineHeight:1.7,fontSize:13 }}>Describe una idea → el sistema genera guiones, narración, animaciones, edición, thumbnails, SEO y sube los videos programados.</p>
-          <div className="vf-form-g"><label className="vf-label">Idea / Prompt Principal</label><textarea className="vf-ta" rows={4} value={genIdea} onChange={e => setGenIdea(e.target.value)} placeholder="Ej: 'Serie de 50 videos sobre civilizaciones antiguas misteriosas. 45 seg, animación documental, narración dramática, música épica.'" /></div>
-          <div className="vf-form-grid4">
-            <div className="vf-form-g"><label className="vf-label">Canal</label><select className="vf-input" value={genChan} onChange={e => { if(e.target.value==="new"){setModal("newchannel")}else{setGenChan(e.target.value)} }}>{channels.map(c => <option key={c.id} value={c.id}>{c.icon} {c.name}</option>)}<option value="new">+ Nuevo canal</option></select></div>
-            <div className="vf-form-g"><label className="vf-label">Videos</label><select className="vf-input" value={genCount} onChange={e => setGenCount(Number(e.target.value))}>{[5,10,20,50,100].map(n => <option key={n} value={n}>{n} videos</option>)}</select></div>
-            <div className="vf-form-g"><label className="vf-label">Duración</label><select className="vf-input" value={genDur} onChange={e => setGenDur(e.target.value)}><option value="15">15 seg</option><option value="30">30 seg</option><option value="45">45 seg</option><option value="60">1 min</option></select></div>
-            <div className="vf-form-g"><label className="vf-label">Videos/día</label><select className="vf-input" value={genPerDay} onChange={e => setGenPerDay(e.target.value)}>{[1,2,3,4,5].map(n => <option key={n} value={String(n)}>{n}/día</option>)}</select></div>
+          <h2 style={{ fontSize:22,fontWeight:800,display:"flex",alignItems:"center",gap:10,marginBottom:4 }}><I.Spark {...sz(24)} style={{ color:"#F97316" }} /> Generador Automático de Videos</h2>
+          <p className="vf-t2" style={{ marginBottom:20,lineHeight:1.8,fontSize:13 }}>Escribe una idea y VideoForge genera <strong style={{color:"var(--t1)"}}>videos completos de 1 minuto</strong> automáticamente: guión → narración → animación → edición → thumbnail → SEO → publicación.</p>
+
+          {/* ── Step 1: Idea ── */}
+          <div style={{ background:"rgba(0,0,0,0.25)",borderRadius:14,padding:20,marginBottom:16,border:"1px solid rgba(249,115,22,0.1)" }}>
+            <div style={{ display:"flex",alignItems:"center",gap:8,marginBottom:12 }}><span style={{ background:"var(--acc)",color:"#fff",width:24,height:24,borderRadius:6,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:800 }}>1</span><span style={{ fontSize:14,fontWeight:700 }}>¿De qué quieres hacer videos?</span></div>
+            <textarea className="vf-ta" rows={3} value={genIdea} onChange={e => setGenIdea(e.target.value)} placeholder="Ejemplo: 'Los 10 inventos más locos que cambiaron la historia. Con animaciones dramáticas y narración épica.'" style={{ fontSize:14,lineHeight:1.7 }} />
           </div>
-          <label className="vf-label" style={{ marginBottom:8 }}>Opciones</label>
-          <div className="vf-tags" style={{ marginBottom:20 }}>{[
-            {id:"animation",l:"Animación NanoBanana",e:"🎬"},{id:"narration",l:"Narración ElevenLabs",e:"🎙️"},{id:"subtitles",l:"Subtítulos",e:"💬"},
-            {id:"music",l:"Música Libre",e:"🎵"},{id:"thumbnail",l:"Thumbnail IA",e:"🖼️"},{id:"seo",l:"SEO + Tags",e:"🔍"},
-            {id:"trending",l:"Trending Analysis",e:"📈"},{id:"ab",l:"A/B Thumbnails",e:"🧪"},{id:"hooks",l:"Hook Optimization",e:"🪝"},{id:"multilang",l:"Multi-idioma",e:"🌐"},
-          ].map(t => <button key={t.id} className={`vf-tag ${genOpts.includes(t.id)?"on":""}`} onClick={() => toggleOpt(t.id)}>{t.e} {t.l}</button>)}</div>
-          <button className="vf-btn vf-btn-glow vf-btn-xl" onClick={doGen} disabled={loading||!genIdea.trim()}>{loading ? <><I.Loader {...sz(18)} className="vf-spin" /> Generando {genCount} videos...</> : <><I.Zap {...sz(18)} /> Iniciar Generación — {genCount} Videos</>}</button>
+
+          {/* ── Step 2: Config ── */}
+          <div style={{ background:"rgba(0,0,0,0.25)",borderRadius:14,padding:20,marginBottom:16,border:"1px solid rgba(168,85,247,0.1)" }}>
+            <div style={{ display:"flex",alignItems:"center",gap:8,marginBottom:12 }}><span style={{ background:"var(--acc2)",color:"#fff",width:24,height:24,borderRadius:6,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:800 }}>2</span><span style={{ fontSize:14,fontWeight:700 }}>Configura tu serie</span></div>
+            <div className="vf-form-grid4">
+              <div className="vf-form-g"><label className="vf-label">Canal destino</label><select className="vf-input" value={genChan} onChange={e => { if(e.target.value==="new"){setModal("newchannel")}else{setGenChan(e.target.value)} }}>{channels.map(c => <option key={c.id} value={c.id}>{c.icon} {c.name}</option>)}<option value="new">+ Nuevo canal</option></select></div>
+              <div className="vf-form-g"><label className="vf-label">Cuántos videos</label><select className="vf-input" value={genCount} onChange={e => setGenCount(Number(e.target.value))}>{[5,10,20,50,100].map(n => <option key={n} value={n}>{n} videos</option>)}</select></div>
+              <div className="vf-form-g"><label className="vf-label">Duración</label><select className="vf-input" value={genDur} onChange={e => setGenDur(e.target.value)}><option value="30">30 seg</option><option value="45">45 seg</option><option value="60">1 minuto</option><option value="90">1:30 min</option></select></div>
+              <div className="vf-form-g"><label className="vf-label">Publicar</label><select className="vf-input" value={genPerDay} onChange={e => setGenPerDay(e.target.value)}>{[1,2,3,4,5].map(n => <option key={n} value={String(n)}>{n} video{n>1?"s":""}/día</option>)}</select></div>
+            </div>
+          </div>
+
+          {/* ── Step 3: Options ── */}
+          <div style={{ background:"rgba(0,0,0,0.25)",borderRadius:14,padding:20,marginBottom:20,border:"1px solid rgba(34,197,94,0.1)" }}>
+            <div style={{ display:"flex",alignItems:"center",gap:8,marginBottom:12 }}><span style={{ background:"var(--ok)",color:"#fff",width:24,height:24,borderRadius:6,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:800 }}>3</span><span style={{ fontSize:14,fontWeight:700 }}>¿Qué incluye cada video?</span></div>
+            <div className="vf-tags">{[
+              {id:"animation",l:"Animación",e:"🎬",d:"Visuales animados"},{id:"narration",l:"Narración IA",e:"🎙️",d:"Voz profesional"},{id:"subtitles",l:"Subtítulos",e:"💬",d:"Auto-subtitulado"},
+              {id:"music",l:"Música de fondo",e:"🎵",d:"Royalty free"},{id:"thumbnail",l:"Thumbnail IA",e:"🖼️",d:"Diseño auto"},{id:"seo",l:"SEO + Tags",e:"🔍",d:"Optimizado"},
+              {id:"hooks",l:"Ganchos virales",e:"🪝",d:"Primeros 3 seg"},{id:"multilang",l:"Multi-idioma",e:"🌐",d:"ES/EN/PT"},
+            ].map(t => <button key={t.id} className={`vf-tag ${genOpts.includes(t.id)?"on":""}`} onClick={() => toggleOpt(t.id)} style={{ flexDirection:"column",alignItems:"center",padding:"10px 14px",minWidth:90 }}><span style={{fontSize:20}}>{t.e}</span><span style={{fontSize:11,fontWeight:600}}>{t.l}</span><span className="vf-t3" style={{fontSize:9}}>{t.d}</span></button>)}</div>
+          </div>
+
+          {/* ── Generate Button ── */}
+          <button className="vf-btn vf-btn-glow vf-btn-xl" onClick={doGen} disabled={loading||!genIdea.trim()} style={{ fontSize:16,padding:18 }}>
+            {loading ? <><I.Loader {...sz(20)} className="vf-spin" /> Generando {genCount} videos de {genDur}s automáticamente...</> : <><I.Zap {...sz(20)} /> Generar {genCount} Videos de {genDur === "60" ? "1 min" : genDur === "90" ? "1:30" : genDur + "s"} Automáticamente</>}
+          </button>
         </div>
       </div>
+
+      {/* ── How it works ── */}
       <div className="vf-card" style={{ marginTop:20 }}>
-        <div className="vf-card-h"><span className="vf-card-t"><I.Repeat {...sz(16)} style={{ color:"var(--acc2)" }} /> Pipeline Automático</span></div>
+        <div className="vf-card-h"><span className="vf-card-t"><I.Repeat {...sz(16)} style={{ color:"var(--acc2)" }} /> Así funciona cada video (automático)</span></div>
         <div className="vf-card-b"><div className="vf-steps">{STEPS.map((s,i) => (
           <div key={i} className="vf-step" style={{ borderColor:`${s.color}30`,background:`${s.color}08` }}>
             <div style={{ fontSize:28,marginBottom:6 }}>{s.icon}</div><div style={{ fontSize:12,fontWeight:700 }}>{s.label}</div><div className="vf-t3" style={{ fontSize:10 }}>{s.desc}</div>
             {i<STEPS.length-1 && <div className="vf-step-arr"><I.Right {...sz(12)} /></div>}
           </div>
-        ))}</div></div>
+        ))}</div>
+        <div style={{ padding:"12px 0 4px",fontSize:12,color:"var(--t2)",lineHeight:1.7,textAlign:"center" }}>
+          Cada video pasa por todas las etapas automáticamente. Puedes ver el progreso en tiempo real en el <button onClick={() => setView("pipeline")} style={{ background:"none",border:"none",color:"var(--acc)",cursor:"pointer",fontWeight:700,fontFamily:"inherit",fontSize:12,textDecoration:"underline" }}>Pipeline</button>.
+        </div>
+        </div>
       </div>
-    </>
-  )
+
+      {/* ── Live Generation Feed ── */}
+      {recentlyGenerated.length > 0 && <div className="vf-card" style={{ marginTop:20 }}>
+        <div className="vf-card-h"><span className="vf-card-t"><I.Activity {...sz(16)} style={{ color:"#4ADE80" }} /> Videos en proceso ({recentlyGenerated.length})</span><div className="vf-pulse"><div className="vf-pulse-dot" /><span>Generando</span></div></div>
+        <div className="vf-card-b">{recentlyGenerated.map(v => {
+          const ch=getChannel(v.channel), st=STATUS_MAP[v.status], pr=liveProgress[v.id]||v.progress
+          const stepIdx = st?.order || 0
+          return (<div className="vf-row" key={v.id} onClick={() => setDetailVideo(v)} style={{ cursor:"pointer" }}>
+            <div style={{ display:"flex",alignItems:"center",gap:4,minWidth:120 }}>
+              {STEPS.slice(0,7).map((s,i) => <span key={i} style={{ fontSize:i<=stepIdx?14:10,opacity:i<=stepIdx?1:0.2,transition:"all .3s" }} title={s.label}>{s.icon}</span>)}
+            </div>
+            <div className="vf-row-info" style={{ flex:3 }}>
+              <div className="vf-row-title">{v.title}</div>
+              <div className="vf-row-meta">{ch.icon} {ch.name} · {v.duration} · {v.scheduledAt}</div>
+            </div>
+            <div className="vf-bar-w" style={{ width:120 }}><div className="vf-bar-f" style={{ width:`${pr}%`, background:pr>=100?"var(--ok)":`linear-gradient(90deg,${st.color},${st.color}88)`,transition:"width .5s" }} /></div>
+            <span className="vf-mono" style={{ fontSize:11,width:32,color:st.color }}>{Math.round(pr)}%</span>
+            <span className="vf-badge" style={{ background:st.bg,color:st.color }}>{st.label}</span>
+          </div>)
+        })}</div>
+      </div>}
+    </>)
+  }
 
   // ── CAMPAIGNS ─────────────────────────────────────────
   const renderCampaigns = () => (
