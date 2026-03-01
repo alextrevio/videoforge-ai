@@ -1,17 +1,59 @@
 import { NextRequest, NextResponse } from 'next/server'
 
-// POST /api/render
-// Full video render pipeline:
-// 1. Script → 2. Subtitles → 3. Media → 4. Voiceover → 5. Compose → 6. Upload
-// This is the main endpoint the frontend calls to produce a complete video
+// Transition pool for auto-assignment
+const TRANSITIONS = ['zoom-in', 'slide-left', 'flash', 'zoom-out', 'slide-right', 'glitch', 'zoom-in', 'slide-left']
+
+// Royalty-free music URLs by mood (Pixabay/Mixkit style CDN)
+// In production, host these in Supabase Storage
+const MUSIC_BY_NICHE: Record<string, string> = {
+  history: 'https://cdn.pixabay.com/audio/2024/11/29/audio_e4f02db1b2.mp3',
+  kids: 'https://cdn.pixabay.com/audio/2024/09/18/audio_c3ccff8088.mp3',
+  facts: 'https://cdn.pixabay.com/audio/2024/02/14/audio_8e153f12e5.mp3',
+  horror: 'https://cdn.pixabay.com/audio/2024/10/06/audio_1d7e235584.mp3',
+  motivation: 'https://cdn.pixabay.com/audio/2024/05/16/audio_166b243548.mp3',
+  tech: 'https://cdn.pixabay.com/audio/2024/02/14/audio_8e153f12e5.mp3',
+  lifestyle: 'https://cdn.pixabay.com/audio/2024/09/18/audio_c3ccff8088.mp3',
+  finance: 'https://cdn.pixabay.com/audio/2024/05/16/audio_166b243548.mp3',
+  gaming: 'https://cdn.pixabay.com/audio/2024/11/29/audio_e4f02db1b2.mp3',
+  other: 'https://cdn.pixabay.com/audio/2024/02/14/audio_8e153f12e5.mp3',
+}
+
+// Niche color palettes
+const NICHE_PALETTE: Record<string, { accent: string; bg: [string, string] }> = {
+  history: { accent: '#E8A838', bg: ['#1a0a00', '#2a1500'] },
+  kids: { accent: '#4ECDC4', bg: ['#001a1a', '#002a2a'] },
+  facts: { accent: '#A855F7', bg: ['#0a001a', '#150030'] },
+  horror: { accent: '#6366F1', bg: ['#0a0a0a', '#15001a'] },
+  motivation: { accent: '#EF4444', bg: ['#1a0500', '#2a0800'] },
+  tech: { accent: '#06B6D4', bg: ['#000a1a', '#001530'] },
+  lifestyle: { accent: '#EC4899', bg: ['#1a0010', '#2a0018'] },
+  finance: { accent: '#22C55E', bg: ['#001a0a', '#002a12'] },
+  gaming: { accent: '#8B5CF6', bg: ['#10001a', '#1a0030'] },
+  other: { accent: '#F97316', bg: ['#0a0a12', '#12122a'] },
+}
+
+// Emphasis keywords — words that get dramatic zoom
+const EMPHASIS_WORDS = new Set([
+  'increíble', 'impactante', 'secreto', 'peligro', 'mortal', 'millones',
+  'nunca', 'siempre', 'jamás', 'prohibido', 'misterio', 'imposible',
+  'terrible', 'brutal', 'épico', 'apocalipsis', 'destrucción', 'muerte',
+  'brillante', 'genio', 'legendario', 'histórico', 'insólito', 'sorprendente',
+  'incredible', 'shocking', 'secret', 'danger', 'deadly', 'millions',
+  'never', 'always', 'forbidden', 'mystery', 'impossible', 'brutal',
+  'amazing', 'legendary', 'insane', 'crazy', 'unbelievable', 'mind-blowing',
+])
+
 export async function POST(req: NextRequest) {
   try {
-    const { videoId, title, description, script, niche, duration, voice, lang, platforms } = await req.json()
+    const { videoId, title, description, script, niche, duration, voice, lang } = await req.json()
     const baseUrl = new URL(req.url).origin
     const durSec = parseInt(duration?.replace(/[^0-9]/g, '') || '40')
     const results: Record<string, any> = { videoId, steps: {} }
+    const palette = NICHE_PALETTE[niche] || NICHE_PALETTE.other
 
-    // ── Step 1: Generate script if not provided ──
+    // ═══════════════════════════════════════════════════
+    // STEP 1: SCRIPT
+    // ═══════════════════════════════════════════════════
     let finalScript = script
     if (!finalScript || finalScript.length < 20) {
       const scriptRes = await fetch(`${baseUrl}/api/generate/script`, {
@@ -22,52 +64,87 @@ export async function POST(req: NextRequest) {
       const scriptData = await scriptRes.json()
       finalScript = scriptData.script || `${title}. ${description}`
       results.steps.script = { mode: scriptData.mode, length: finalScript.length }
+    } else {
+      results.steps.script = { mode: 'provided', length: finalScript.length }
     }
 
-    // ── Step 2: Generate subtitles (word-level timestamps) ──
-    const subRes = await fetch(`${baseUrl}/api/generate/subtitles`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ script: finalScript, duration: String(durSec) }),
-    })
-    const subData = await subRes.json()
-    const subtitles = subData.subtitles || []
-    results.steps.subtitles = { count: subtitles.length, mode: subData.mode }
+    // ═══════════════════════════════════════════════════
+    // STEP 2: EXTRACT HOOK (first sentence for first 2 sec)
+    // ═══════════════════════════════════════════════════
+    const cleanText = finalScript.replace(/\[.*?\]/g, '').replace(/\(.*?\)/g, '').trim()
+    const firstSentence = cleanText.split(/[.!?]/)[0]?.trim() || title
+    const hookText = firstSentence.length > 40 ? firstSentence.slice(0, 40) + '...' : firstSentence
+    results.steps.hook = { text: hookText }
 
-    // ── Step 3: Split script into scenes ──
-    const sentences = finalScript
-      .replace(/\[.*?\]/g, '')
+    // ═══════════════════════════════════════════════════
+    // STEP 3: SPLIT INTO SCENES (every 3-5 sec)
+    // ═══════════════════════════════════════════════════
+    const sentences = cleanText
       .split(/(?<=[.!?])\s+/)
-      .filter((s: string) => s.trim().length > 10)
-    
-    const maxScenes = Math.min(Math.ceil(durSec / 5), 8) // ~5 sec per scene, max 8
-    const sceneDur = durSec / Math.min(sentences.length, maxScenes)
-    
-    const scenes = sentences.slice(0, maxScenes).map((text: string, i: number) => ({
-      text: text.trim(),
-      startSec: i * sceneDur,
-      endSec: (i + 1) * sceneDur,
-    }))
-    results.steps.scenes = { count: scenes.length, duration: sceneDur }
+      .filter((s: string) => s.trim().length > 8)
 
-    // ── Step 4: Fetch stock media for each scene ──
+    // Target: ~3 seconds per scene for rapid feel
+    const targetSceneDur = 3
+    const maxScenes = Math.min(Math.ceil(durSec / targetSceneDur), 12)
+    const actualScenes = Math.min(sentences.length, maxScenes)
+    const sceneDur = durSec / actualScenes
+
+    // Leave 2 sec for hook
+    const contentStart = 2
+    const contentDur = durSec - contentStart
+
+    const scenes = sentences.slice(0, actualScenes).map((text: string, i: number) => ({
+      text: text.trim(),
+      startSec: contentStart + (i * (contentDur / actualScenes)),
+      endSec: contentStart + ((i + 1) * (contentDur / actualScenes)),
+      transition: TRANSITIONS[i % TRANSITIONS.length],
+    }))
+    results.steps.scenes = { count: scenes.length, avgDuration: Math.round(sceneDur * 10) / 10 }
+
+    // ═══════════════════════════════════════════════════
+    // STEP 4: FETCH B-ROLL MEDIA (multiple images per scene)
+    // ═══════════════════════════════════════════════════
+    // Request 2-3 images per scene for rapid B-roll cuts
+    const expandedScenes = scenes.flatMap((s: any, i: number) => {
+      const subDur = (s.endSec - s.startSec) / 2 // 2 clips per scene
+      return [
+        { text: s.text.split(' ').slice(0, 4).join(' '), startSec: s.startSec, endSec: s.startSec + subDur },
+        { text: s.text.split(' ').slice(4, 8).join(' ') || niche, startSec: s.startSec + subDur, endSec: s.endSec },
+      ]
+    })
+
     const mediaRes = await fetch(`${baseUrl}/api/generate/media`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ scenes, niche }),
+      body: JSON.stringify({ scenes: expandedScenes, niche }),
     })
     const mediaData = await mediaRes.json()
     const media = mediaData.media || []
 
-    // Merge media into scenes
-    const enrichedScenes = scenes.map((scene: any, i: number) => ({
-      ...scene,
-      imageUrl: media[i]?.imageUrl || null,
-      bgColor: null,
-    }))
-    results.steps.media = { mode: mediaData.mode, found: media.filter((m: any) => m.imageUrl).length }
+    // Assign media to scenes: main image + B-roll clips
+    const enrichedScenes = scenes.map((scene: any, i: number) => {
+      const mainMedia = media[i * 2]
+      const bRollMedia = media[i * 2 + 1]
+      return {
+        ...scene,
+        imageUrl: mainMedia?.imageUrl || null,
+        bRoll: bRollMedia?.imageUrl ? [{
+          url: bRollMedia.imageUrl,
+          type: 'image' as const,
+          startSec: scene.startSec + (scene.endSec - scene.startSec) / 2,
+          endSec: scene.endSec,
+        }] : [],
+      }
+    })
+    results.steps.media = {
+      mode: mediaData.mode,
+      mainImages: media.filter((m: any, i: number) => i % 2 === 0 && m.imageUrl).length,
+      bRollClips: media.filter((m: any, i: number) => i % 2 === 1 && m.imageUrl).length,
+    }
 
-    // ── Step 5: Generate voiceover ──
+    // ═══════════════════════════════════════════════════
+    // STEP 5: VOICEOVER
+    // ═══════════════════════════════════════════════════
     const voRes = await fetch(`${baseUrl}/api/generate/voiceover`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -76,42 +153,51 @@ export async function POST(req: NextRequest) {
     const voData = await voRes.json()
     results.steps.voiceover = { mode: voData.mode, hasAudio: !!voData.audioUrl }
 
-    // If Whisper is available and we got real audio, re-generate subtitles with real timestamps
-    if (voData.audioUrl && voData.mode === 'elevenlabs' && process.env.OPENAI_API_KEY) {
-      const realSubRes = await fetch(`${baseUrl}/api/generate/subtitles`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ script: finalScript, audioUrl: voData.audioUrl, duration: String(durSec) }),
-      })
-      const realSubData = await realSubRes.json()
-      if (realSubData.subtitles?.length > 0) {
-        results.steps.subtitles = { count: realSubData.subtitles.length, mode: realSubData.mode }
-        // Use Whisper subtitles instead
-        Object.assign(subtitles, realSubData.subtitles)
-      }
+    // ═══════════════════════════════════════════════════
+    // STEP 6: SUBTITLES WITH EMPHASIS
+    // ═══════════════════════════════════════════════════
+    const subRes = await fetch(`${baseUrl}/api/generate/subtitles`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        script: finalScript,
+        audioUrl: voData.mode === 'elevenlabs' ? voData.audioUrl : null,
+        duration: String(durSec),
+      }),
+    })
+    const subData = await subRes.json()
+
+    // Mark emphasis words
+    const subtitles = (subData.subtitles || []).map((w: any) => ({
+      ...w,
+      // Offset subtitles by hook duration
+      start: w.start + contentStart,
+      end: w.end + contentStart,
+      emphasis: EMPHASIS_WORDS.has(w.word.toLowerCase()),
+    }))
+    results.steps.subtitles = {
+      count: subtitles.length,
+      mode: subData.mode,
+      emphasisCount: subtitles.filter((w: any) => w.emphasis).length,
     }
 
-    // ── Step 6: Compose video ──
-    // Niche color palettes
-    const NICHE_COLORS: Record<string, { accent: string; bg: [string, string] }> = {
-      history: { accent: '#E8A838', bg: ['#1a0a00', '#2a1500'] },
-      kids: { accent: '#4ECDC4', bg: ['#001a1a', '#002a2a'] },
-      facts: { accent: '#A855F7', bg: ['#0a001a', '#150030'] },
-      horror: { accent: '#6366F1', bg: ['#0a0a0a', '#15001a'] },
-      motivation: { accent: '#EF4444', bg: ['#1a0500', '#2a0800'] },
-      tech: { accent: '#06B6D4', bg: ['#000a1a', '#001530'] },
-      lifestyle: { accent: '#EC4899', bg: ['#1a0010', '#2a0018'] },
-      finance: { accent: '#22C55E', bg: ['#001a0a', '#002a12'] },
-      gaming: { accent: '#8B5CF6', bg: ['#10001a', '#1a0030'] },
-      other: { accent: '#F97316', bg: ['#0a0a12', '#12122a'] },
-    }
-    const palette = NICHE_COLORS[niche] || NICHE_COLORS.other
+    // ═══════════════════════════════════════════════════
+    // STEP 7: MUSIC TRACK
+    // ═══════════════════════════════════════════════════
+    const musicUrl = MUSIC_BY_NICHE[niche] || MUSIC_BY_NICHE.other
+    results.steps.music = { niche, hasMusic: true }
 
+    // ═══════════════════════════════════════════════════
+    // STEP 8: COMPOSE
+    // ═══════════════════════════════════════════════════
     const compositionData = {
       scenes: enrichedScenes,
       subtitles,
       audioUrl: voData.audioUrl || null,
+      musicUrl,
+      musicVolume: 0.12,
       title,
+      hookText,
       niche,
       accentColor: palette.accent,
       bgGradient: palette.bg,
@@ -120,7 +206,7 @@ export async function POST(req: NextRequest) {
       durationSec: durSec,
     }
 
-    // Try Shotstack for rendering
+    // Try Shotstack render
     const shotKey = process.env.SHOTSTACK_API_KEY
     if (shotKey) {
       const renderRes = await fetch(`${baseUrl}/api/generate/video`, {
@@ -136,8 +222,7 @@ export async function POST(req: NextRequest) {
       results.status = 'rendering'
       results.renderId = renderData.renderId
     } else {
-      // No render engine — store composition data for client-side preview
-      results.steps.render = { mode: 'preview-only' }
+      results.steps.render = { mode: 'preview' }
       results.status = 'preview'
     }
 
