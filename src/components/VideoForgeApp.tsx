@@ -725,6 +725,8 @@ export default function VideoForgeApp({ user, onLogout }: VFProps) {
                         {icon:'💬',label:'Subtítulos',detail:`${renderResult.steps?.subtitles?.count||0} palabras · ${renderResult.steps?.subtitles?.emphasisCount||0} con énfasis`},
                         {icon:'🎵',label:'Música',detail:renderResult.steps?.music?.niche||'—'},
                         {icon:'🎞️',label:'Render',detail:renderResult.steps?.render?.mode||'—'},
+                        {icon:'📢',label:'CTA',detail:renderResult.steps?.cta?.text||'—'},
+                        {icon:'✨',label:'FX',detail:'Partículas + Flare + Beat Sync + Zoom Punch'},
                       ].map((s,i)=>
                         <div key={i} style={{display:'flex',alignItems:'center',gap:8,padding:'4px 0',borderBottom:i<7?'1px solid rgba(30,30,42,0.5)':'none',fontSize:11}}>
                           <span>{s.icon}</span>
@@ -745,7 +747,7 @@ export default function VideoForgeApp({ user, onLogout }: VFProps) {
                     <p style={{color:'var(--t1)',fontSize:15,fontWeight:700,marginBottom:6}}>Producir Video Completo</p>
                     <p style={{color:'var(--t3)',fontSize:12,marginBottom:16,lineHeight:1.5}}>Hook → Guión → Narración → B-Roll<br/>Subtítulos CapCut → Música → MP4</p>
                     <div style={{display:'flex',flexWrap:'wrap',gap:6,justifyContent:'center',marginBottom:20}}>
-                      {['🎣 Hook 2s','🎙️ Voz IA','🖼️ B-Roll','💬 Subtítulos','🎵 Música','⚡ Transiciones'].map(f=>
+                      {['🎣 Hook 2s','🎙️ Voz IA','🖼️ B-Roll','💬 Subtítulos','🎵 Música','⚡ Transiciones','✨ Partículas','🔦 Lens Flare','💓 Beat Sync','📊 Barra','📢 CTA','🎨 Color Grade'].map(f=>
                         <span key={f} style={{fontSize:10,padding:'3px 8px',borderRadius:5,background:'var(--bg2)',border:'1px solid var(--bd)',color:'var(--t2)'}}>{f}</span>
                       )}
                     </div>

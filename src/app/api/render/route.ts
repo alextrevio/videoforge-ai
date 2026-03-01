@@ -32,15 +32,32 @@ const NICHE_PALETTE: Record<string, { accent: string; bg: [string, string] }> = 
   other: { accent: '#F97316', bg: ['#0a0a12', '#12122a'] },
 }
 
-// Emphasis keywords — words that get dramatic zoom
+// Emphasis keywords — words that get dramatic zoom + emoji + shake
 const EMPHASIS_WORDS = new Set([
-  'increíble', 'impactante', 'secreto', 'peligro', 'mortal', 'millones',
-  'nunca', 'siempre', 'jamás', 'prohibido', 'misterio', 'imposible',
-  'terrible', 'brutal', 'épico', 'apocalipsis', 'destrucción', 'muerte',
-  'brillante', 'genio', 'legendario', 'histórico', 'insólito', 'sorprendente',
-  'incredible', 'shocking', 'secret', 'danger', 'deadly', 'millions',
-  'never', 'always', 'forbidden', 'mystery', 'impossible', 'brutal',
-  'amazing', 'legendary', 'insane', 'crazy', 'unbelievable', 'mind-blowing',
+  // Spanish — impacto
+  'increíble','impactante','secreto','peligro','mortal','millones','billones',
+  'nunca','siempre','jamás','prohibido','misterio','imposible','terrible',
+  'brutal','épico','apocalipsis','destrucción','muerte','asesinato',
+  'brillante','genio','legendario','histórico','insólito','sorprendente',
+  'catastrófico','devastador','extraordinario','fenomenal','colosal',
+  'aterrador','escalofriante','macabro','siniestro','maldito','oscuro',
+  'poderoso','invencible','indestructible','letal','tóxico','radiactivo',
+  'explosión','guerra','batalla','conquista','imperio','revolución',
+  'fortuna','tesoro','riqueza','diamante','oro','platino',
+  'descubrimiento','revelación','conspiración','verdad','mentira',
+  'gigante','enorme','masivo','diminuto','microscópico','invisible',
+  'velocidad','relámpago','instante','eterno','infinito',
+  'primero','último','único','mejor','peor','mayor','menor',
+  // English — impact
+  'incredible','shocking','secret','danger','deadly','millions','billions',
+  'never','always','forbidden','mystery','impossible','brutal','epic',
+  'amazing','legendary','insane','crazy','unbelievable','mind-blowing',
+  'catastrophic','devastating','extraordinary','phenomenal','colossal',
+  'terrifying','sinister','cursed','dark','powerful','invincible',
+  'lethal','toxic','radioactive','explosion','war','battle','empire',
+  'fortune','treasure','diamond','gold','discovery','conspiracy',
+  'giant','massive','tiny','invisible','lightning','eternal','infinite',
+  'first','last','only','best','worst','biggest','smallest',
 ])
 
 export async function POST(req: NextRequest) {
@@ -188,7 +205,25 @@ export async function POST(req: NextRequest) {
     results.steps.music = { niche, hasMusic: true }
 
     // ═══════════════════════════════════════════════════
-    // STEP 8: COMPOSE
+    // STEP 8: CTA TEXT
+    // ═══════════════════════════════════════════════════
+    const CTA_BY_NICHE: Record<string, string> = {
+      history: '¿Qué civilización quieres conocer?',
+      kids: '¡Dale like si quieres más!',
+      facts: '¿Sabías esto? ¡Comparte!',
+      horror: '¿Te atreves a ver el siguiente?',
+      motivation: '¡Tú puedes! Suscríbete',
+      tech: 'El futuro es ahora',
+      lifestyle: '✨ Sígueme para más tips',
+      finance: '💰 Suscríbete y aprende',
+      gaming: '🎮 ¡Más en el siguiente video!',
+      other: '¡Suscríbete para más!',
+    }
+    const ctaText = CTA_BY_NICHE[niche] || CTA_BY_NICHE.other
+    results.steps.cta = { text: ctaText }
+
+    // ═══════════════════════════════════════════════════
+    // STEP 9: COMPOSE
     // ═══════════════════════════════════════════════════
     const compositionData = {
       scenes: enrichedScenes,
@@ -198,6 +233,7 @@ export async function POST(req: NextRequest) {
       musicVolume: 0.12,
       title,
       hookText,
+      ctaText,
       niche,
       accentColor: palette.accent,
       bgGradient: palette.bg,
