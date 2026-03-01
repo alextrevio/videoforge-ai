@@ -583,8 +583,41 @@ export default function VideoForgeApp({ user, onLogout }: VFProps) {
   )
 
   // ── SETTINGS ──────────────────────────────────────────
+  // API status
+  const [apiStatus, setApiStatus] = useState<any>(null)
+  useEffect(() => { fetch('/api/status').then(r=>r.json()).then(setApiStatus).catch(()=>{}) }, [])
+
   const renderSettings = () => (
-    <div className="vf-card"><div className="vf-card-b">
+    <div style={{display:'flex',flexDirection:'column',gap:14}}>
+      {/* API Status Card */}
+      <div className="vf-card">
+        <div className="vf-card-h"><span className="vf-card-t">🔌 Estado de APIs</span></div>
+        <div className="vf-card-b">
+          {apiStatus ? <>
+            <div style={{fontSize:11,color:'var(--t3)',marginBottom:10}}>APIs de producción — configura en Vercel → Environment Variables</div>
+            {Object.entries(apiStatus.apis||{}).map(([k,v]:any)=>
+              <div className="vf-set-row" key={k}>
+                <span style={{width:8,height:8,borderRadius:4,background:v.configured?'var(--ok)':'var(--err)',flexShrink:0}}/>
+                <div style={{flex:1}}><div style={{fontSize:12,fontWeight:600}}>{v.label}</div></div>
+                <span style={{fontSize:10,fontWeight:600,color:v.configured?'var(--ok)':'var(--t3)'}}>{v.configured?'Conectado':'No configurado'}</span>
+              </div>
+            )}
+            <div style={{marginTop:8,paddingTop:8,borderTop:'1px solid var(--bd)'}}>
+              <div style={{fontSize:10,color:'var(--t3)',marginBottom:6}}>OAuth — publicación automática</div>
+              {Object.entries(apiStatus.oauth||{}).map(([k,v]:any)=>
+                <div className="vf-set-row" key={k} style={{padding:'6px 0'}}>
+                  <span style={{width:8,height:8,borderRadius:4,background:v.configured?'var(--ok)':'rgba(255,255,255,0.1)',flexShrink:0}}/>
+                  <span style={{fontSize:11,flex:1}}>{v.label}</span>
+                  <span style={{fontSize:10,color:v.configured?'var(--ok)':'var(--t3)'}}>{v.configured?'✓':'—'}</span>
+                </div>
+              )}
+            </div>
+          </> : <div style={{fontSize:12,color:'var(--t3)',padding:8}}>Cargando estado...</div>}
+        </div>
+      </div>
+
+      {/* General Settings */}
+      <div className="vf-card"><div className="vf-card-h"><span className="vf-card-t">{I.Settings(16)} General</span></div><div className="vf-card-b">
       {[{k:'autoAdvance',l:'Auto-avance de pipeline',d:'Los videos avanzan automáticamente por las etapas'}].map(s=>
         <div className="vf-set-row" key={s.k}><div style={{flex:1}}><div style={{fontSize:13,fontWeight:600}}>{s.l}</div><div style={{fontSize:11,color:'var(--t3)'}}>{s.d}</div></div>
           <div className={`vf-toggle ${(settings as any)[s.k]?'on':''}`} onClick={()=>updateSettings({[s.k]:!(settings as any)[s.k]})}><div className="vf-toggle-k"/></div>
@@ -597,7 +630,7 @@ export default function VideoForgeApp({ user, onLogout }: VFProps) {
         <div style={{flex:1}}><div style={{fontSize:13,fontWeight:600,color:'#F87171'}}>Borrar todos los datos</div><div style={{fontSize:11,color:'var(--t3)'}}>Elimina canales, videos y configuración</div></div>
         <button className="vf-btn vf-btn-sm vf-btn-ghost" style={{color:'#F87171'}} onClick={()=>{if(confirm('¿Borrar TODOS los datos? No se puede deshacer.'))resetAll()}}>{I.Trash(12)} Borrar Todo</button>
       </div>
-    </div></div>
+    </div></div></div>
   )
 
   // ── MODALS ────────────────────────────────────────────
