@@ -1,43 +1,16 @@
 import { supabase, isSupabaseConfigured } from './supabase'
-import { Channel, VideoItem, AppSettings, Platform, VideoStatus, genId, nowDate, fmtDur } from './store'
+import { Channel, VideoItem, Platform, VideoStatus } from './store'
 
-// ── Hybrid Data Layer ───────────────────────────────────
-// Uses Supabase when configured, falls back to localStorage
-// This lets the app work in demo mode without a database
-
+// ── Single-user data layer ──────────────────────────────
+// Supabase when configured, otherwise no-op (localStorage handles it)
 const isDb = () => isSupabaseConfigured()
-
-// ── Auth ────────────────────────────────────────────────
-export async function signUp(email: string, password: string, name: string) {
-  if (!isDb()) return { user: { id: 'local', email, name }, error: null }
-  const { data, error } = await supabase.auth.signUp({
-    email, password, options: { data: { name } }
-  })
-  return { user: data.user, error }
-}
-
-export async function signIn(email: string, password: string) {
-  if (!isDb()) return { user: { id: 'local', email }, error: null }
-  const { data, error } = await supabase.auth.signInWithPassword({ email, password })
-  return { user: data.user, error }
-}
-
-export async function signOut() {
-  if (!isDb()) return
-  await supabase.auth.signOut()
-}
-
-export async function getUser() {
-  if (!isDb()) return null
-  const { data } = await supabase.auth.getUser()
-  return data.user
-}
+const OWNER = 'owner'
 
 // ── Channels ────────────────────────────────────────────
-export async function fetchChannels(userId: string): Promise<Channel[]> {
+export async function fetchChannels(): Promise<Channel[]> {
   if (!isDb()) return []
   const { data } = await supabase.from('channels')
-    .select('*').eq('user_id', userId).order('created_at', { ascending: true })
+    .select('*').eq('user_id', OWNER).order('created_at', { ascending: true })
   if (!data) return []
   return data.map(r => ({
     id: r.id, name: r.name, platform: r.platform as Platform,
@@ -49,10 +22,10 @@ export async function fetchChannels(userId: string): Promise<Channel[]> {
   }))
 }
 
-export async function insertChannel(userId: string, ch: Channel) {
+export async function insertChannel(ch: Channel) {
   if (!isDb()) return
   await supabase.from('channels').insert({
-    id: ch.id, user_id: userId, name: ch.name, platform: ch.platform,
+    id: ch.id, user_id: OWNER, name: ch.name, platform: ch.platform,
     niche: ch.niche, icon: ch.icon, color: ch.color, status: ch.status,
     autopilot: ch.autopilot, autopilot_idea: ch.autopilotIdea,
     autopilot_per_day: ch.autopilotPerDay, autopilot_duration: ch.autopilotDuration,
@@ -79,10 +52,10 @@ export async function removeChannel(id: string) {
 }
 
 // ── Videos ──────────────────────────────────────────────
-export async function fetchVideos(userId: string): Promise<VideoItem[]> {
+export async function fetchVideos(): Promise<VideoItem[]> {
   if (!isDb()) return []
   const { data } = await supabase.from('videos')
-    .select('*').eq('user_id', userId).order('created_at', { ascending: true })
+    .select('*').eq('user_id', OWNER).order('created_at', { ascending: true })
   if (!data) return []
   return data.map(r => ({
     id: r.id, title: r.title, description: r.description || '',
@@ -93,15 +66,14 @@ export async function fetchVideos(userId: string): Promise<VideoItem[]> {
     platforms: (r.platforms || []) as Platform[],
     publishedAt: r.published_at || undefined, createdAt: r.created_at,
     audioUrl: r.audio_url || undefined, videoUrl: r.video_url || undefined,
-    thumbnailUrl: r.thumbnail_url || undefined,
-    renderData: r.render_data || undefined,
+    thumbnailUrl: r.thumbnail_url || undefined, renderData: r.render_data || undefined,
   }))
 }
 
-export async function insertVideo(userId: string, v: VideoItem) {
+export async function insertVideo(v: VideoItem) {
   if (!isDb()) return
   await supabase.from('videos').insert({
-    id: v.id, user_id: userId, channel_id: v.channelId,
+    id: v.id, user_id: OWNER, channel_id: v.channelId,
     title: v.title, description: v.description, tags: v.tags,
     script: v.script, status: v.status, progress: v.progress,
     duration: v.duration, scheduled_date: v.scheduledDate || null,
@@ -111,10 +83,10 @@ export async function insertVideo(userId: string, v: VideoItem) {
   })
 }
 
-export async function insertVideoBatch(userId: string, vids: VideoItem[]) {
+export async function insertVideoBatch(vids: VideoItem[]) {
   if (!isDb()) return
   const rows = vids.map(v => ({
-    id: v.id, user_id: userId, channel_id: v.channelId,
+    id: v.id, user_id: OWNER, channel_id: v.channelId,
     title: v.title, description: v.description, tags: v.tags,
     script: v.script, status: v.status, progress: v.progress,
     duration: v.duration, scheduled_date: v.scheduledDate || null,
@@ -146,32 +118,4 @@ export async function patchVideo(id: string, d: Partial<VideoItem>) {
 export async function removeVideo(id: string) {
   if (!isDb()) return
   await supabase.from('videos').delete().eq('id', id)
-}
-
-// ── Jobs ────────────────────────────────────────────────
-export async function createJob(userId: string, videoId: string, type: string) {
-  if (!isDb()) return null
-  const { data } = await supabase.from('jobs').insert({
-    user_id: userId, video_id: videoId, type, status: 'pending'
-  }).select().single()
-  return data
-}
-
-export async function fetchPendingJobs(): Promise<any[]> {
-  if (!isDb()) return []
-  const { data } = await supabase.from('jobs')
-    .select('*').eq('status', 'pending').order('created_at').limit(10)
-  return data || []
-}
-
-export async function completeJob(jobId: string, result: any) {
-  if (!isDb()) return
-  await supabase.from('jobs').update({
-    status: 'completed', result, completed_at: new Date().toISOString()
-  }).eq('id', jobId)
-}
-
-export async function failJob(jobId: string, error: string) {
-  if (!isDb()) return
-  await supabase.from('jobs').update({ status: 'failed', error }).eq('id', jobId)
 }

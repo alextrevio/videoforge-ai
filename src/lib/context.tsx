@@ -93,8 +93,8 @@ function lsSave(s: AppState) {
 // PROVIDER
 // ═══════════════════════════════════════════════════════
 export function AppProvider({ children, userId }: { children: ReactNode; userId?: string }) {
-  const uid = userId || 'demo'
-  const useDb = isSupabaseConfigured() && uid !== 'demo'
+  const uid = userId || 'owner'
+  const useDb = isSupabaseConfigured()
   const dbMode = useDb ? 'supabase' as const : 'local' as const
 
   const [channels, setChannels] = useState<Channel[]>([])
@@ -108,7 +108,7 @@ export function AppProvider({ children, userId }: { children: ReactNode; userId?
   useEffect(() => {
     const loadData = async () => {
       if (useDb) {
-        const [chs, vids] = await Promise.all([db.fetchChannels(uid), db.fetchVideos(uid)])
+        const [chs, vids] = await Promise.all([db.fetchChannels(), db.fetchVideos()])
         setChannels(chs)
         setVideos(vids)
       } else {
@@ -238,7 +238,7 @@ export function AppProvider({ children, userId }: { children: ReactNode; userId?
           })
         })
         if (newVids.length > 0) {
-          if (useDb) db.insertVideoBatch(uid, newVids)
+          if (useDb) db.insertVideoBatch(newVids)
           return [...prev, ...newVids]
         }
         return prev
@@ -260,7 +260,7 @@ export function AppProvider({ children, userId }: { children: ReactNode; userId?
       autopilotPlatforms: d.autopilotPlatforms ?? [d.platform],
     }
     setChannels(p => [...p, ch])
-    if (useDb) db.insertChannel(uid, ch)
+    if (useDb) db.insertChannel(ch)
     return ch
   }, [uid, useDb])
 
@@ -287,7 +287,7 @@ export function AppProvider({ children, userId }: { children: ReactNode; userId?
       platforms: d.platforms || settings.defaultPlatforms, createdAt: nowDate(),
     }
     setVideos(p => [...p, v])
-    if (useDb) db.insertVideo(uid, v)
+    if (useDb) db.insertVideo(v)
     return v
   }, [settings.defaultPlatforms, uid, useDb])
 
@@ -339,7 +339,7 @@ export function AppProvider({ children, userId }: { children: ReactNode; userId?
       scheduledTime: scheduleTime(i, perDay), platforms: plats, createdAt: today,
     }))
     setVideos(p => [...p, ...created])
-    if (useDb) db.insertVideoBatch(uid, created)
+    if (useDb) db.insertVideoBatch(created)
     setRenderQueue(q => [...q, ...created.map(v => v.id)])
     return created
   }, [channels, uid, useDb])
