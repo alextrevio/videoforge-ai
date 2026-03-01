@@ -18,6 +18,12 @@ export interface VideoItem {
   channelId: string; status: VideoStatus; progress: number; duration: string
   scheduledDate: string; scheduledTime: string; platforms: Platform[]
   publishedAt?: string; createdAt: string
+  // Render pipeline data
+  audioUrl?: string; videoUrl?: string; thumbnailUrl?: string
+  renderData?: {
+    composition?: any; renderId?: string; renderStatus?: string
+    steps?: Record<string, any>; error?: string
+  }
 }
 
 export interface AppSettings {

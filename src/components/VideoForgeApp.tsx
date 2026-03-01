@@ -30,9 +30,9 @@ interface VFProps { user: { id: string; email: string }; onLogout: () => void }
 
 export default function VideoForgeApp({ user, onLogout }: VFProps) {
   const app = useApp()
-  const { channels, videos, settings,
+  const { channels, videos, settings, renderQueue,
     addChannel, updateChannel, deleteChannel,
-    addVideo, updateVideo, deleteVideo, advanceVideo, publishVideo,
+    addVideo, updateVideo, deleteVideo, advanceVideo, publishVideo, triggerRender,
     generateVideos, updateSettings, resetAll
   } = app
 
@@ -135,11 +135,11 @@ export default function VideoForgeApp({ user, onLogout }: VFProps) {
     setLoading(true)
     setTimeout(() => {
       generateVideos(genIdea, genChan, genCount, genDur, genPerDay, genPlatforms as string[])
-      toast(`✅ ${genCount} videos creados`)
+      toast(`🚀 ${genCount} videos creados — producción automática iniciada`)
       setLoading(false)
       setGenIdea('')
       setView('videos')
-    }, 1200)
+    }, 800)
   }
 
   const doAddChannel = () => {
@@ -227,11 +227,18 @@ export default function VideoForgeApp({ user, onLogout }: VFProps) {
       const data = await res.json()
       setRenderResult(data)
       if (data.script && !editScript) setEditScript(data.script)
+      // Save render data to video state
+      updateVideo(detailVid.id, {
+        script: data.script || editScript,
+        audioUrl: data.composition?.audioUrl,
+        status: data.status === 'rendering' ? 'editing' : 'review',
+        progress: data.status === 'rendering' ? 65 : 85,
+        renderData: { composition: data.composition, renderId: data.renderId, renderStatus: data.status, steps: data.steps },
+      })
       if (data.status === 'rendering') {
         toast('🎬 Video en renderización...')
-        advanceVideo(detailVid.id)
       } else if (data.status === 'preview') {
-        toast('👁️ Preview generado — necesitas SHOTSTACK_API_KEY para renderizar MP4')
+        toast('✅ Video producido — preview listo')
       } else {
         toast(`⚠️ Render: ${data.status || 'error'}`)
       }
@@ -388,7 +395,7 @@ export default function VideoForgeApp({ user, onLogout }: VFProps) {
             <div style={{display:'flex',gap:2,minWidth:100}}>{PIPELINE_STEPS.map((s,i)=><span key={i} style={{fontSize:i===stepIdx?14:i<stepIdx?12:9,opacity:i<=stepIdx?1:0.15,transition:'all .3s'}} title={s.label}>{s.icon}</span>)}</div>
             <div className="vf-row-info" style={{flex:2}}><div className="vf-row-title">{v.title}</div><div className="vf-row-meta">{ch ? `${PLATFORMS[ch.platform].icon} ${ch.name}` : '—'} · {v.duration}</div></div>
             <div className="vf-bar-w" style={{width:80}}><div className="vf-bar-f" style={{width:`${pr}%`,background:st.color,transition:'width .5s'}}/></div>
-            <span style={{fontSize:11,fontWeight:600,color:st.color,minWidth:85}}>{st.label}</span>
+            <span style={{fontSize:11,fontWeight:600,color:st.color,minWidth:85}}>{renderQueue.includes(v.id)?<span style={{color:'var(--acc)',display:'flex',alignItems:'center',gap:3}}><span style={{display:'inline-flex',animation:'spin 1s linear infinite'}}>{I.Loader(10)}</span>Produciendo</span>:st.label}</span>
           </div>
         })}</div>
       </div>}
@@ -409,6 +416,18 @@ export default function VideoForgeApp({ user, onLogout }: VFProps) {
   // ── VIDEOS (Pipeline) ─────────────────────────────────
   const renderVideos = () => (
     <>
+      {/* Render Queue Banner */}
+      {renderQueue.length > 0 && (
+        <div style={{background:'linear-gradient(135deg,rgba(249,115,22,0.12),rgba(168,85,247,0.08))',border:'1px solid rgba(249,115,22,0.2)',borderRadius:12,padding:'12px 16px',marginBottom:12,display:'flex',alignItems:'center',gap:10}}>
+          <span style={{display:'inline-flex',animation:'spin 1.5s linear infinite',flexShrink:0}}>{I.Loader(18)}</span>
+          <div style={{flex:1}}>
+            <div style={{fontSize:13,fontWeight:700,color:'var(--acc)'}}>Producción Automática en Curso</div>
+            <div style={{fontSize:11,color:'var(--t2)',marginTop:2}}>{renderQueue.length} video{renderQueue.length>1?'s':''} en cola · Guión → Voz → Media → Subtítulos → Música → Composición</div>
+          </div>
+          <div style={{fontSize:20,fontWeight:800,color:'var(--acc)',fontFamily:"'JetBrains Mono',monospace"}}>{renderQueue.length}</div>
+        </div>
+      )}
+
       <div className="vf-toolbar">
         <div className="vf-search-w">{I.Search(14)}<input className="vf-search-i" value={search} onChange={e=>setSearch(e.target.value)} placeholder="Buscar..." /></div>
         <select className="vf-sel" value={filterStatus} onChange={e=>setFilterStatus(e.target.value)}><option value="all">Todos los estados</option>{Object.entries(STATUS_MAP).map(([k,v])=><option key={k} value={k}>{v.label}</option>)}</select>
@@ -429,12 +448,18 @@ export default function VideoForgeApp({ user, onLogout }: VFProps) {
         {filteredVideos.length > 0 ? filteredVideos.map(v=>{
           const ch=getChannel(v.channelId),st=STATUS_MAP[v.status],pr=liveProgress[v.id]||v.progress
           const stepIdx=st?.order??0
+          const isRendering = renderQueue.includes(v.id)
+          const hasFailed = v.renderData?.renderStatus === 'failed'
           return <div className="vf-row" key={v.id} onClick={()=>openDetail(v)} style={{cursor:'pointer',padding:'10px 0'}}>
             <div style={{display:'flex',gap:2,minWidth:110}}>{PIPELINE_STEPS.map((s,i)=><span key={i} style={{fontSize:i===stepIdx?14:i<stepIdx?12:9,opacity:i<=stepIdx?1:0.12,transition:'all .3s',filter:i===stepIdx?`drop-shadow(0 0 3px ${st.color})`:''}} title={s.label}>{s.icon}</span>)}</div>
             <div className="vf-row-info" style={{flex:2}}><div className="vf-row-title">{v.title}</div><div className="vf-row-meta">{ch?`${PLATFORMS[ch.platform].icon} ${ch.name}`:'—'} · {v.duration} {v.scheduledDate && `· ${v.scheduledDate} ${v.scheduledTime}`}</div></div>
             <div style={{display:'flex',gap:3}}>{v.platforms.map(p=><span key={p} title={PLATFORMS[p].label} style={{fontSize:12}}>{PLATFORMS[p].icon}</span>)}</div>
-            <div className="vf-bar-w" style={{width:70}}><div className="vf-bar-f" style={{width:`${pr}%`,background:st.color,transition:'width .5s'}}/></div>
-            <span style={{fontSize:11,fontWeight:700,color:st.color,minWidth:85,textAlign:'center'}}>{st.label}</span>
+            <div className="vf-bar-w" style={{width:70}}><div className="vf-bar-f" style={{width:`${pr}%`,background:isRendering?'var(--acc)':st.color,transition:'width .5s'}}/></div>
+            <span style={{fontSize:11,fontWeight:700,minWidth:85,textAlign:'center',color:isRendering?'var(--acc)':hasFailed?'var(--err)':st.color}}>
+              {isRendering?<span style={{display:'flex',alignItems:'center',gap:3,justifyContent:'center'}}><span style={{display:'inline-flex',animation:'spin 1s linear infinite'}}>{I.Loader(10)}</span>Produciendo</span>
+              :hasFailed?'❌ Error'
+              :st.label}
+            </span>
           </div>
         }) : <div style={{textAlign:'center',padding:40,color:'var(--t3)'}}>
           {videos.length===0?'No hay videos aún. ':'No hay videos con estos filtros. '}
@@ -761,11 +786,15 @@ export default function VideoForgeApp({ user, onLogout }: VFProps) {
             <div className="vf-modal-f">
               <button className="vf-btn vf-btn-ghost" style={{color:'#F87171'}} onClick={doDeleteVideo}>{I.Trash(14)} Eliminar</button>
               <div style={{flex:1}}/>
-              {detailTab!=='preview'&&v.status!=='published'&&v.status!=='scheduled'&&v.status!=='review'&&<button className="vf-btn vf-btn-ghost" onClick={doAdvance}>{I.Right(14)} Avanzar</button>}
+              {v.renderData?.renderStatus==='failed'&&<button className="vf-btn vf-btn-ghost" style={{color:'var(--acc)'}} onClick={()=>{triggerRender(v.id);toast('🔄 Re-produciendo...');setDetailVid(null)}}>{I.Loader(14)} Reintentar</button>}
+              {v.status==='script'&&!renderQueue.includes(v.id)&&detailTab!=='preview'&&<button className="vf-btn vf-btn-glow" onClick={()=>{triggerRender(v.id);toast('🚀 Producción iniciada');setDetailVid(null)}}>{I.Spark(14)} Producir</button>}
+              {detailTab!=='preview'&&v.status!=='published'&&v.status!=='scheduled'&&v.status!=='review'&&v.status!=='script'&&<button className="vf-btn vf-btn-ghost" onClick={doAdvance}>{I.Right(14)} Avanzar</button>}
               {v.status==='review'&&<button className="vf-btn vf-btn-ghost" onClick={doAdvance}>{I.Calendar(14)} Programar</button>}
               {v.status==='scheduled'&&<button className="vf-btn vf-btn-glow" onClick={doPublish}>{I.Send(14)} Publicar Ahora</button>}
               {detailTab!=='preview'&&<button className="vf-btn vf-btn-glow" onClick={doSaveEdit}>{I.Check(14)} Guardar</button>}
               {detailTab==='preview'&&!renderResult&&<button className="vf-btn vf-btn-glow" onClick={doRender} disabled={renderLoading}>{renderLoading?'Produciendo...':'🚀 Producir'}</button>}
+              {detailTab==='preview'&&renderResult&&<button className="vf-btn vf-btn-ghost" onClick={doRender} disabled={renderLoading}>{renderLoading?'Re-produciendo...':'🔄 Re-producir'}</button>}
+              {v.renderData?.error&&<span style={{fontSize:10,color:'#F87171'}}>⚠️ {v.renderData.error}</span>}
             </div>
           </div>
         </div>
@@ -810,6 +839,7 @@ export default function VideoForgeApp({ user, onLogout }: VFProps) {
             <div className="vf-top-l"><button className="vf-menu-b" onClick={()=>setMobNav(!mobNav)}>{I.Menu(20)}</button><h2 className="vf-pg-t">{TITLES[view]||''}</h2></div>
             <div className="vf-top-r">
               {activeJobs>0&&<span style={{fontSize:11,color:'var(--t3)',display:'flex',alignItems:'center',gap:4}}><span style={{width:6,height:6,borderRadius:3,background:'var(--ok)',animation:'blink 2s infinite'}}/>{activeJobs} procesando</span>}
+              {renderQueue.length>0&&<span style={{fontSize:11,color:'var(--acc)',display:'flex',alignItems:'center',gap:4}}><span style={{display:'inline-flex',animation:'spin 1s linear infinite'}}>{I.Loader(12)}</span>{renderQueue.length} en cola</span>}
               <button className="vf-btn vf-btn-glow" onClick={()=>setView('create')}>{I.Spark(14)} Crear</button>
             </div>
           </header>
