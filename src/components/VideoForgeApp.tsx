@@ -71,6 +71,9 @@ export default function VideoForgeApp({ user, onLogout }: VFProps) {
   const [editTime, setEditTime] = useState('')
   const [editScript, setEditScript] = useState('')
   const [genScriptLoading, setGenScriptLoading] = useState(false)
+  const [renderLoading, setRenderLoading] = useState(false)
+  const [renderResult, setRenderResult] = useState<any>(null)
+  const [detailTab, setDetailTab] = useState<'edit'|'script'|'preview'>('edit')
 
   // Toast
   const [toasts, setToasts] = useState<{id:string;msg:string}[]>([])
@@ -204,6 +207,37 @@ export default function VideoForgeApp({ user, onLogout }: VFProps) {
       }
     } catch (e: any) { toast(`Error: ${e.message}`) }
     setGenScriptLoading(false)
+  }
+
+  const doRender = async () => {
+    if (!detailVid) return
+    setRenderLoading(true); setRenderResult(null)
+    try {
+      const ch = getChannel(detailVid.channelId)
+      const res = await fetch('/api/render', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          videoId: detailVid.id, title: editTitle, description: editDesc,
+          script: editScript, niche: ch?.niche || 'other',
+          duration: detailVid.duration.replace(/[^0-9]/g,''),
+          voice: settings.voice, lang: settings.lang,
+          platforms: detailVid.platforms,
+        }),
+      })
+      const data = await res.json()
+      setRenderResult(data)
+      if (data.script && !editScript) setEditScript(data.script)
+      if (data.status === 'rendering') {
+        toast('🎬 Video en renderización...')
+        advanceVideo(detailVid.id)
+      } else if (data.status === 'preview') {
+        toast('👁️ Preview generado — necesitas SHOTSTACK_API_KEY para renderizar MP4')
+      } else {
+        toast(`⚠️ Render: ${data.status || 'error'}`)
+      }
+      setDetailTab('preview')
+    } catch (e: any) { toast(`Error: ${e.message}`) }
+    setRenderLoading(false)
   }
 
   const doOAuthConnect = (channelId: string, platform: string) => {
@@ -602,46 +636,110 @@ export default function VideoForgeApp({ user, onLogout }: VFProps) {
       const v=detailVid,ch=getChannel(v.channelId),st=STATUS_MAP[v.status],stepIdx=st?.order??0
       return (
         <div className="vf-overlay" onClick={e=>e.target===e.currentTarget&&setDetailVid(null)}>
-          <div className="vf-modal" style={{maxWidth:620}}>
-            <div className="vf-modal-h"><h2 style={{fontSize:15,fontWeight:700}}>Detalle del Video</h2><button className="vf-modal-x" onClick={()=>setDetailVid(null)}>{I.X(18)}</button></div>
+          <div className="vf-modal" style={{maxWidth:640}}>
+            <div className="vf-modal-h">
+              <h2 style={{fontSize:15,fontWeight:700}}>Detalle del Video</h2>
+              <div style={{display:'flex',gap:2}}>
+                {(['edit','script','preview'] as const).map(t=><button key={t} onClick={()=>setDetailTab(t)} style={{padding:'4px 12px',borderRadius:6,border:'none',background:detailTab===t?'var(--accg)':'transparent',color:detailTab===t?'var(--acc)':'var(--t3)',fontSize:11,fontWeight:600,cursor:'pointer',fontFamily:'inherit'}}>{t==='edit'?'✏️ Info':t==='script'?'📝 Guión':'👁️ Preview'}</button>)}
+              </div>
+              <button className="vf-modal-x" onClick={()=>{setDetailVid(null);setRenderResult(null);setDetailTab('edit')}}>{I.X(18)}</button>
+            </div>
             <div className="vf-modal-b">
               {/* Stage visual */}
-              <div style={{display:'flex',gap:4,justifyContent:'center',marginBottom:16,padding:'12px 0',background:'var(--bg2)',borderRadius:10}}>
-                {PIPELINE_STEPS.map((s,i)=><div key={i} style={{display:'flex',flexDirection:'column',alignItems:'center',gap:2,padding:'4px 6px',opacity:i<=stepIdx?1:0.2,transition:'all .3s'}}>
-                  <span style={{fontSize:i===stepIdx?22:16,filter:i===stepIdx?`drop-shadow(0 0 6px ${st.color})`:''}}>{s.icon}</span>
-                  <span style={{fontSize:8,fontWeight:600}}>{s.label}</span>
-                  {i<PIPELINE_STEPS.length-1&&i<stepIdx&&<span style={{color:'var(--ok)',fontSize:8}}>✓</span>}
+              <div style={{display:'flex',gap:4,justifyContent:'center',marginBottom:16,padding:'10px 0',background:'var(--bg2)',borderRadius:10}}>
+                {PIPELINE_STEPS.map((s,i)=><div key={i} style={{display:'flex',flexDirection:'column',alignItems:'center',gap:2,padding:'3px 5px',opacity:i<=stepIdx?1:0.2}}>
+                  <span style={{fontSize:i===stepIdx?20:14,filter:i===stepIdx?`drop-shadow(0 0 6px ${st.color})`:''}}>{s.icon}</span>
+                  <span style={{fontSize:7,fontWeight:600}}>{s.label}</span>
                 </div>)}
               </div>
-              <div className="vf-form-g"><label className="vf-label">Título</label><input className="vf-input" value={editTitle} onChange={e=>setEditTitle(e.target.value)}/></div>
-              <div className="vf-form-g"><label className="vf-label">Descripción</label><textarea className="vf-ta" rows={2} value={editDesc} onChange={e=>setEditDesc(e.target.value)} placeholder="Descripción para redes sociales..."/></div>
-              
-              {/* Script Editor */}
-              <div className="vf-form-g">
-                <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:5}}>
-                  <label className="vf-label" style={{marginBottom:0}}>📝 Guión</label>
-                  <button className="vf-btn vf-btn-sm vf-btn-ghost" onClick={doGenScript} disabled={genScriptLoading} style={{fontSize:10}}>
-                    {genScriptLoading?'Generando...':'🤖 Generar con IA'}
+
+              {/* Tab: Edit */}
+              {detailTab==='edit'&&<>
+                <div className="vf-form-g"><label className="vf-label">Título</label><input className="vf-input" value={editTitle} onChange={e=>setEditTitle(e.target.value)}/></div>
+                <div className="vf-form-g"><label className="vf-label">Descripción</label><textarea className="vf-ta" rows={2} value={editDesc} onChange={e=>setEditDesc(e.target.value)} placeholder="Descripción para redes sociales..."/></div>
+                <div className="vf-form-grid2">
+                  <div className="vf-form-g"><label className="vf-label">Fecha</label><input className="vf-input" type="date" value={editDate} onChange={e=>setEditDate(e.target.value)}/></div>
+                  <div className="vf-form-g"><label className="vf-label">Hora</label><input className="vf-input" type="time" value={editTime} onChange={e=>setEditTime(e.target.value)}/></div>
+                </div>
+                <div className="vf-form-g"><label className="vf-label">Plataformas</label><div style={{display:'flex',gap:4}}>{v.platforms.map(p=><span key={p} style={{padding:'4px 10px',borderRadius:6,background:`${PLATFORMS[p].color}15`,color:PLATFORMS[p].color,fontSize:11,fontWeight:600}}>{PLATFORMS[p].icon} {PLATFORMS[p].label}</span>)}</div></div>
+                <div style={{display:'flex',gap:6,fontSize:12,color:'var(--t3)',marginTop:8}}>
+                  <span>Canal: {ch?`${PLATFORMS[ch.platform].icon} ${ch.name}`:'—'}</span><span>·</span>
+                  <span>Duración: {v.duration}</span><span>·</span>
+                  <span style={{color:st.color,fontWeight:600}}>Estado: {st.label}</span>
+                </div>
+              </>}
+
+              {/* Tab: Script */}
+              {detailTab==='script'&&<>
+                <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:8}}>
+                  <label className="vf-label" style={{marginBottom:0,fontSize:13}}>📝 Guión del video</label>
+                  <button className="vf-btn vf-btn-sm vf-btn-glow" onClick={doGenScript} disabled={genScriptLoading} style={{fontSize:11}}>
+                    {genScriptLoading?<><span style={{display:'inline-flex',animation:'spin 1s linear infinite'}}>{I.Loader(12)}</span> Generando...</>:'🤖 Generar con Claude'}
                   </button>
                 </div>
-                <textarea className="vf-ta" rows={6} value={editScript} onChange={e=>setEditScript(e.target.value)} placeholder="El guión aparecerá aquí cuando se genere..." style={{fontSize:12,fontFamily:"'JetBrains Mono',monospace"}}/>
-                {editScript && <div style={{fontSize:10,color:'var(--t3)',marginTop:4}}>~{editScript.split(' ').length} palabras · ~{Math.round(editScript.split(' ').length/2.5)}s de narración</div>}
-              </div>
+                <textarea className="vf-ta" rows={12} value={editScript} onChange={e=>setEditScript(e.target.value)} placeholder="Escribe el guión o genera uno con IA..." style={{fontSize:12,fontFamily:"'JetBrains Mono',monospace",lineHeight:1.6}}/>
+                {editScript && <div style={{display:'flex',gap:12,marginTop:6}}>
+                  <span style={{fontSize:10,color:'var(--t3)'}}>📊 {editScript.split(/\s+/).filter(Boolean).length} palabras</span>
+                  <span style={{fontSize:10,color:'var(--t3)'}}>⏱️ ~{Math.round(editScript.split(/\s+/).filter(Boolean).length/2.5)}s narración</span>
+                  <span style={{fontSize:10,color:'var(--t3)'}}>🎬 ~{Math.min(Math.ceil(editScript.split(/[.!?]/).filter(s=>s.trim().length>10).length),8)} escenas</span>
+                </div>}
+              </>}
 
-              <div className="vf-form-grid2">
-                <div className="vf-form-g"><label className="vf-label">Fecha</label><input className="vf-input" type="date" value={editDate} onChange={e=>setEditDate(e.target.value)}/></div>
-                <div className="vf-form-g"><label className="vf-label">Hora</label><input className="vf-input" type="time" value={editTime} onChange={e=>setEditTime(e.target.value)}/></div>
-              </div>
-              <div className="vf-form-g"><label className="vf-label">Plataformas</label><div style={{display:'flex',gap:4}}>{v.platforms.map(p=><span key={p} style={{padding:'4px 10px',borderRadius:6,background:`${PLATFORMS[p].color}15`,color:PLATFORMS[p].color,fontSize:11,fontWeight:600}}>{PLATFORMS[p].icon} {PLATFORMS[p].label}</span>)}</div></div>
-              <div style={{display:'flex',gap:6,fontSize:12,color:'var(--t3)',marginTop:8}}><span>Canal: {ch?`${PLATFORMS[ch.platform].icon} ${ch.name}`:'—'}</span><span>·</span><span>Duración: {v.duration}</span><span>·</span><span style={{color:st.color,fontWeight:600}}>Estado: {st.label}</span></div>
+              {/* Tab: Preview */}
+              {detailTab==='preview'&&<>
+                {renderResult ? (
+                  <div>
+                    {/* Preview: show composition data */}
+                    <div style={{background:'#000',borderRadius:12,overflow:'hidden',aspectRatio:'9/16',maxHeight:400,position:'relative',display:'flex',alignItems:'center',justifyContent:'center',margin:'0 auto',maxWidth:225}}>
+                      {/* Simulated frame */}
+                      <div style={{position:'absolute',inset:0,background:renderResult.composition?.bgGradient?`linear-gradient(165deg,${renderResult.composition.bgGradient[0]},${renderResult.composition.bgGradient[1]})`:'#0a0a12'}}/>
+                      <div style={{position:'absolute',top:16,left:12,right:12,textAlign:'center'}}>
+                        <p style={{fontSize:8,fontWeight:700,color:'rgba(255,255,255,0.15)',textTransform:'uppercase',letterSpacing:1}}>{renderResult.composition?.scenes?.[0]?.text?.slice(0,40)||''}</p>
+                      </div>
+                      {/* Subtitle preview */}
+                      <div style={{position:'absolute',bottom:30,left:8,right:8,textAlign:'center'}}>
+                        {(renderResult.composition?.subtitles||[]).slice(0,5).map((w:any,i:number)=>
+                          <span key={i} style={{fontSize:9,fontWeight:900,color:i===2?'#fff':'rgba(255,255,255,0.4)',background:i===2?(renderResult.composition?.accentColor||'#F97316'):'transparent',padding:i===2?'1px 4px':'1px 0',borderRadius:3,margin:'0 1px',textTransform:'uppercase'}}>{w.word} </span>
+                        )}
+                      </div>
+                      {/* Play overlay */}
+                      <div style={{width:40,height:40,borderRadius:20,background:'rgba(255,255,255,0.15)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:1}}>{I.Play(18)}</div>
+                    </div>
+
+                    {/* Render steps summary */}
+                    <div style={{marginTop:14}}>
+                      {Object.entries(renderResult.steps||{}).map(([key,val]:any)=>
+                        <div key={key} style={{display:'flex',alignItems:'center',gap:8,padding:'5px 0',borderBottom:'1px solid var(--bd)',fontSize:11}}>
+                          <span style={{color:'var(--ok)'}}>✓</span>
+                          <span style={{fontWeight:600,minWidth:70,textTransform:'capitalize'}}>{key}</span>
+                          <span style={{color:'var(--t3)'}}>{val.mode||''} {val.count!==undefined?`(${val.count})`:''}</span>
+                        </div>
+                      )}
+                    </div>
+                    <div style={{marginTop:8,fontSize:11,color:renderResult.status==='rendering'?'var(--ok)':'var(--warn)',fontWeight:600}}>
+                      {renderResult.status==='rendering'?'🎬 Renderizando MP4... se subirá automáticamente al terminar':'⚠️ Preview — configura SHOTSTACK_API_KEY para renderizar MP4 real'}
+                    </div>
+                  </div>
+                ) : (
+                  <div style={{textAlign:'center',padding:40}}>
+                    <div style={{fontSize:48,marginBottom:12}}>🎬</div>
+                    <p style={{color:'var(--t2)',fontSize:14,marginBottom:16}}>Genera el video completo con IA</p>
+                    <p style={{color:'var(--t3)',fontSize:12,marginBottom:20}}>Guión → Narración → Stock media → Subtítulos → MP4</p>
+                    <button className="vf-btn vf-btn-glow" style={{padding:'12px 28px',fontSize:14}} onClick={doRender} disabled={renderLoading}>
+                      {renderLoading?<><span style={{display:'inline-flex',animation:'spin 1s linear infinite'}}>{I.Loader(18)}</span> Produciendo video...</>:'🚀 Producir Video Completo'}
+                    </button>
+                  </div>
+                )}
+              </>}
             </div>
             <div className="vf-modal-f">
               <button className="vf-btn vf-btn-ghost" style={{color:'#F87171'}} onClick={doDeleteVideo}>{I.Trash(14)} Eliminar</button>
               <div style={{flex:1}}/>
-              {v.status!=='published'&&v.status!=='scheduled'&&v.status!=='review'&&<button className="vf-btn vf-btn-ghost" onClick={doAdvance}>{I.Right(14)} Avanzar</button>}
+              {detailTab!=='preview'&&v.status!=='published'&&v.status!=='scheduled'&&v.status!=='review'&&<button className="vf-btn vf-btn-ghost" onClick={doAdvance}>{I.Right(14)} Avanzar</button>}
               {v.status==='review'&&<button className="vf-btn vf-btn-ghost" onClick={doAdvance}>{I.Calendar(14)} Programar</button>}
               {v.status==='scheduled'&&<button className="vf-btn vf-btn-glow" onClick={doPublish}>{I.Send(14)} Publicar Ahora</button>}
-              <button className="vf-btn vf-btn-glow" onClick={doSaveEdit}>{I.Check(14)} Guardar</button>
+              {detailTab!=='preview'&&<button className="vf-btn vf-btn-glow" onClick={doSaveEdit}>{I.Check(14)} Guardar</button>}
+              {detailTab==='preview'&&!renderResult&&<button className="vf-btn vf-btn-glow" onClick={doRender} disabled={renderLoading}>{renderLoading?'Produciendo...':'🚀 Producir'}</button>}
             </div>
           </div>
         </div>
