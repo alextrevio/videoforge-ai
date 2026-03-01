@@ -69,6 +69,8 @@ export default function VideoForgeApp({ user, onLogout }: VFProps) {
   const [editDesc, setEditDesc] = useState('')
   const [editDate, setEditDate] = useState('')
   const [editTime, setEditTime] = useState('')
+  const [editScript, setEditScript] = useState('')
+  const [genScriptLoading, setGenScriptLoading] = useState(false)
 
   // Toast
   const [toasts, setToasts] = useState<{id:string;msg:string}[]>([])
@@ -154,7 +156,7 @@ export default function VideoForgeApp({ user, onLogout }: VFProps) {
 
   const doSaveEdit = () => {
     if (!detailVid) return
-    updateVideo(detailVid.id, { title: editTitle, description: editDesc, scheduledDate: editDate, scheduledTime: editTime })
+    updateVideo(detailVid.id, { title: editTitle, description: editDesc, scheduledDate: editDate, scheduledTime: editTime, script: editScript })
     toast('💾 Video guardado')
     setDetailVid(null)
   }
@@ -183,7 +185,51 @@ export default function VideoForgeApp({ user, onLogout }: VFProps) {
   const openDetail = (v: VideoItem) => {
     setDetailVid(v); setEditTitle(v.title); setEditDesc(v.description)
     setEditDate(v.scheduledDate); setEditTime(v.scheduledTime)
+    setEditScript(v.script || '')
   }
+
+  const doGenScript = async () => {
+    if (!detailVid) return
+    setGenScriptLoading(true)
+    try {
+      const ch = getChannel(detailVid.channelId)
+      const res = await fetch('/api/generate/script', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: editTitle, description: editDesc, niche: ch?.niche || 'other', duration: detailVid.duration.replace(/[^0-9]/g,''), lang: settings.lang }),
+      })
+      const data = await res.json()
+      if (data.script) {
+        setEditScript(data.script)
+        toast(data.mode === 'simulation' ? '📝 Guión simulado generado' : '📝 Guión generado con Claude')
+      }
+    } catch (e: any) { toast(`Error: ${e.message}`) }
+    setGenScriptLoading(false)
+  }
+
+  const doOAuthConnect = (channelId: string, platform: string) => {
+    const appUrl = window.location.origin
+    let authUrl = ''
+    switch (platform) {
+      case 'youtube':
+        authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || 'NOT_SET'}&redirect_uri=${appUrl}/api/oauth/callback?platform=youtube&response_type=code&scope=https://www.googleapis.com/auth/youtube.upload&state=${channelId}&access_type=offline`
+        break
+      case 'tiktok':
+        authUrl = `https://www.tiktok.com/v2/auth/authorize/?client_key=${process.env.NEXT_PUBLIC_TIKTOK_CLIENT_KEY || 'NOT_SET'}&redirect_uri=${appUrl}/api/oauth/callback?platform=tiktok&response_type=code&scope=video.publish&state=${channelId}`
+        break
+      case 'instagram': case 'facebook':
+        authUrl = `https://www.facebook.com/v19.0/dialog/oauth?client_id=${process.env.NEXT_PUBLIC_FACEBOOK_APP_ID || 'NOT_SET'}&redirect_uri=${appUrl}/api/oauth/callback?platform=${platform}&response_type=code&scope=pages_manage_posts,instagram_content_publish&state=${channelId}`
+        break
+    }
+    if (authUrl.includes('NOT_SET')) { toast('⚠️ OAuth no configurado. Agrega las API keys en Vercel.'); return }
+    window.open(authUrl, '_blank', 'width=600,height=700')
+  }
+
+  // Rate limit check
+  const PLAN_LIMITS: Record<string,number> = { demo: 50, free: 10, pro: 100, enterprise: 9999 }
+  const planType = user.id === 'demo' ? 'demo' : 'pro'
+  const monthlyLimit = PLAN_LIMITS[planType]
+  const thisMonthVideos = videos.filter(v => { const d = new Date(v.createdAt); const n = new Date(); return d.getMonth() === n.getMonth() && d.getFullYear() === n.getFullYear() }).length
+  const canCreate = thisMonthVideos < monthlyLimit
 
   // ═══════════════════════════════════════════════════════
   // VIEWS
@@ -193,12 +239,27 @@ export default function VideoForgeApp({ user, onLogout }: VFProps) {
   const renderCreate = () => (
     <>
       {/* Stats */}
-      <div style={{display:'flex',gap:10,marginBottom:20,flexWrap:'wrap'}}>
+      <div style={{display:'flex',gap:10,marginBottom:12,flexWrap:'wrap'}}>
         {[{v:videos.length,l:'Videos',c:'#F97316',i:'🎬'},{v:activeJobs,l:'En proceso',c:'#8B5CF6',i:'⚡'},{v:videos.filter(v=>v.status==='published').length,l:'Publicados',c:'#22C55E',i:'✅'},{v:channels.length,l:'Canales',c:'#3B82F6',i:'📺'}].map((s,i)=>
         <div key={i} style={{display:'flex',alignItems:'center',gap:8,background:'var(--bg1)',border:'1px solid var(--bd)',borderRadius:10,padding:'10px 16px',flex:1,minWidth:130}}>
           <span style={{fontSize:18}}>{s.i}</span>
           <div><div style={{fontSize:18,fontWeight:800,color:s.c,fontFamily:"'JetBrains Mono',monospace"}}>{s.v}</div><div style={{fontSize:10,color:'var(--t3)'}}>{s.l}</div></div>
         </div>)}
+      </div>
+
+      {/* Usage / Rate Limit */}
+      <div style={{background:'var(--bg1)',border:'1px solid var(--bd)',borderRadius:10,padding:'10px 16px',marginBottom:20,display:'flex',alignItems:'center',gap:12}}>
+        <span style={{fontSize:14}}>📊</span>
+        <div style={{flex:1}}>
+          <div style={{display:'flex',justifyContent:'space-between',marginBottom:4}}>
+            <span style={{fontSize:11,fontWeight:600,color:'var(--t2)'}}>Uso mensual</span>
+            <span style={{fontSize:11,fontWeight:700,fontFamily:"'JetBrains Mono',monospace",color:canCreate?'var(--t2)':'#F87171'}}>{thisMonthVideos} / {monthlyLimit}</span>
+          </div>
+          <div style={{height:4,background:'var(--bg3)',borderRadius:2,overflow:'hidden'}}>
+            <div style={{height:'100%',borderRadius:2,background:thisMonthVideos/monthlyLimit>0.8?'#F87171':thisMonthVideos/monthlyLimit>0.5?'#EAB308':'var(--acc)',width:`${Math.min(thisMonthVideos/monthlyLimit*100,100)}%`,transition:'width .3s'}} />
+          </div>
+        </div>
+        <span style={{fontSize:10,padding:'2px 8px',borderRadius:5,background:planType==='demo'?'rgba(249,115,22,0.12)':'rgba(168,85,247,0.12)',color:planType==='demo'?'#F97316':'#A855F7',fontWeight:700,textTransform:'uppercase'}}>{planType}</span>
       </div>
 
       {channels.length === 0 ? (
@@ -274,8 +335,8 @@ export default function VideoForgeApp({ user, onLogout }: VFProps) {
             </div>
 
             {/* Generate */}
-            <button className="vf-btn vf-btn-glow" style={{width:'100%',padding:16,fontSize:15,justifyContent:'center',borderRadius:12}} onClick={doGenerate} disabled={loading||!genIdea.trim()||!genChan}>
-              {loading ? <><span style={{display:'inline-flex',animation:'spin 1s linear infinite'}}>{I.Loader(20)}</span> Generando {genCount} videos...</> : <>{I.Zap(20)} Crear {genCount} Videos de {fmtDur(genDur)}</>}
+            <button className="vf-btn vf-btn-glow" style={{width:'100%',padding:16,fontSize:15,justifyContent:'center',borderRadius:12}} onClick={doGenerate} disabled={loading||!genIdea.trim()||!genChan||!canCreate}>
+              {!canCreate ? <>🚫 Límite mensual alcanzado ({monthlyLimit} videos)</> : loading ? <><span style={{display:'inline-flex',animation:'spin 1s linear infinite'}}>{I.Loader(20)}</span> Generando {genCount} videos...</> : <>{I.Zap(20)} Crear {genCount} Videos de {fmtDur(genDur)}</>}
             </button>
           </div>
         </div>
@@ -446,6 +507,11 @@ export default function VideoForgeApp({ user, onLogout }: VFProps) {
             {ch.autopilot && ch.autopilotIdea && <div style={{fontSize:11,color:'var(--t3)',marginBottom:10,padding:'6px 10px',background:'var(--bg2)',borderRadius:6}}>
               Tema: <strong style={{color:'var(--t2)'}}>{ch.autopilotIdea}</strong> · {fmtDur(ch.autopilotDuration)}/video
             </div>}
+            {/* OAuth connect */}
+            <div style={{display:'flex',alignItems:'center',gap:6,marginBottom:10,padding:'6px 10px',background:'var(--bg2)',borderRadius:8,border:'1px solid var(--bd)'}}>
+              <span style={{fontSize:11,flex:1,color:'var(--t3)'}}>🔗 API: {ch.status==='active'?'No conectado':'Conectado'}</span>
+              <button className="vf-btn vf-btn-sm vf-btn-ghost" style={{fontSize:10,padding:'3px 8px'}} onClick={()=>doOAuthConnect(ch.id,ch.platform)}>Conectar {PLATFORMS[ch.platform].label}</button>
+            </div>
             <div style={{display:'flex',gap:6}}>
               <button className="vf-btn vf-btn-sm vf-btn-glow" style={{flex:1}} onClick={()=>{setGenChan(ch.id);setView('create')}}>{I.Spark(12)} Crear Videos</button>
               <button className="vf-btn vf-btn-sm vf-btn-ghost" style={{flex:1}} onClick={()=>{setFilterChannel(ch.id);setView('videos')}}>{I.Layers(12)} Ver Videos</button>
@@ -536,7 +602,7 @@ export default function VideoForgeApp({ user, onLogout }: VFProps) {
       const v=detailVid,ch=getChannel(v.channelId),st=STATUS_MAP[v.status],stepIdx=st?.order??0
       return (
         <div className="vf-overlay" onClick={e=>e.target===e.currentTarget&&setDetailVid(null)}>
-          <div className="vf-modal" style={{maxWidth:560}}>
+          <div className="vf-modal" style={{maxWidth:620}}>
             <div className="vf-modal-h"><h2 style={{fontSize:15,fontWeight:700}}>Detalle del Video</h2><button className="vf-modal-x" onClick={()=>setDetailVid(null)}>{I.X(18)}</button></div>
             <div className="vf-modal-b">
               {/* Stage visual */}
@@ -548,9 +614,22 @@ export default function VideoForgeApp({ user, onLogout }: VFProps) {
                 </div>)}
               </div>
               <div className="vf-form-g"><label className="vf-label">Título</label><input className="vf-input" value={editTitle} onChange={e=>setEditTitle(e.target.value)}/></div>
-              <div className="vf-form-g"><label className="vf-label">Descripción</label><textarea className="vf-ta" rows={3} value={editDesc} onChange={e=>setEditDesc(e.target.value)} placeholder="Descripción para redes sociales..."/></div>
+              <div className="vf-form-g"><label className="vf-label">Descripción</label><textarea className="vf-ta" rows={2} value={editDesc} onChange={e=>setEditDesc(e.target.value)} placeholder="Descripción para redes sociales..."/></div>
+              
+              {/* Script Editor */}
+              <div className="vf-form-g">
+                <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:5}}>
+                  <label className="vf-label" style={{marginBottom:0}}>📝 Guión</label>
+                  <button className="vf-btn vf-btn-sm vf-btn-ghost" onClick={doGenScript} disabled={genScriptLoading} style={{fontSize:10}}>
+                    {genScriptLoading?'Generando...':'🤖 Generar con IA'}
+                  </button>
+                </div>
+                <textarea className="vf-ta" rows={6} value={editScript} onChange={e=>setEditScript(e.target.value)} placeholder="El guión aparecerá aquí cuando se genere..." style={{fontSize:12,fontFamily:"'JetBrains Mono',monospace"}}/>
+                {editScript && <div style={{fontSize:10,color:'var(--t3)',marginTop:4}}>~{editScript.split(' ').length} palabras · ~{Math.round(editScript.split(' ').length/2.5)}s de narración</div>}
+              </div>
+
               <div className="vf-form-grid2">
-                <div className="vf-form-g"><label className="vf-label">Fecha publicación</label><input className="vf-input" type="date" value={editDate} onChange={e=>setEditDate(e.target.value)}/></div>
+                <div className="vf-form-g"><label className="vf-label">Fecha</label><input className="vf-input" type="date" value={editDate} onChange={e=>setEditDate(e.target.value)}/></div>
                 <div className="vf-form-g"><label className="vf-label">Hora</label><input className="vf-input" type="time" value={editTime} onChange={e=>setEditTime(e.target.value)}/></div>
               </div>
               <div className="vf-form-g"><label className="vf-label">Plataformas</label><div style={{display:'flex',gap:4}}>{v.platforms.map(p=><span key={p} style={{padding:'4px 10px',borderRadius:6,background:`${PLATFORMS[p].color}15`,color:PLATFORMS[p].color,fontSize:11,fontWeight:600}}>{PLATFORMS[p].icon} {PLATFORMS[p].label}</span>)}</div></div>

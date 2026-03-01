@@ -115,48 +115,57 @@ export function AppProvider({ children }: { children: ReactNode }) {
     save({ channels, videos, settings })
   }, [channels, videos, settings, loaded])
 
-  // Auto-advance pipeline
+  // Auto-advance pipeline — calls real APIs when configured, simulates when not
+  // Processes ONE video per tick to avoid overloading APIs
   useEffect(() => {
     if (!loaded || !settings.autoAdvance) return
-    const iv = setInterval(() => {
-      setVideos(prev => {
-        let changed = false
-        const next = prev.map(v => {
-          if (v.status === 'published') return v
-          // Check if channel has autopilot
-          const ch = channels.find(c => c.id === v.channelId)
-          const isAutopilot = ch?.autopilot
-          // Autopilot: skip review, go all the way to scheduled
-          if (isAutopilot) {
-            if (v.status === 'scheduled') return v // wait for publish time
-            if (Math.random() > 0.65) {
-              const idx = STATUS_ORDER.indexOf(v.status)
-              if (idx >= 0 && idx < STATUS_ORDER.length - 1) {
-                changed = true
-                let ns = STATUS_ORDER[idx + 1]
-                if (ns === 'review') ns = 'scheduled' // skip review for autopilot
-                return { ...v, status: ns, progress: ns === 'scheduled' ? 90 : Math.min(v.progress + 15, 95) }
-              }
-            }
-          } else {
-            // Manual: stop at review
-            if (v.status === 'review' || v.status === 'scheduled') return v
-            if (Math.random() > 0.7) {
-              const idx = STATUS_ORDER.indexOf(v.status)
-              if (idx >= 0 && idx < 5) {
-                changed = true
-                const ns = STATUS_ORDER[idx + 1]
-                return { ...v, status: ns, progress: Math.min(v.progress + 15, ns === 'review' ? 85 : 95) }
-              }
-            }
-          }
-          return v
+    let processing = false
+    const iv = setInterval(async () => {
+      if (processing) return
+      processing = true
+      try {
+        setVideos(prev => {
+          // Find one video to advance
+          const candidates = prev.filter(v => {
+            if (v.status === 'published') return false
+            const ch = channels.find(c => c.id === v.channelId)
+            const isAP = ch?.autopilot
+            if (!isAP && (v.status === 'review' || v.status === 'scheduled')) return false
+            if (isAP && v.status === 'scheduled') return false
+            return Math.random() > 0.6
+          })
+          if (candidates.length === 0) return prev
+          const target = candidates[0]
+          const ch = channels.find(c => c.id === target.channelId)
+          const idx = STATUS_ORDER.indexOf(target.status)
+          if (idx < 0 || idx >= STATUS_ORDER.length - 1) return prev
+          let ns = STATUS_ORDER[idx + 1]
+          if (ch?.autopilot && ns === 'review') ns = 'scheduled'
+          const prog = ns === 'scheduled' ? 90 : ns === 'published' ? 100 : Math.min(target.progress + 15, 95)
+          return prev.map(v => v.id === target.id ? { ...v, status: ns, progress: prog } : v)
         })
-        return changed ? next : prev
-      })
+
+        // Fire-and-forget real API call for the video that just advanced
+        // The API results get stored but don't block the UI
+        const vids = videos.filter(v => v.status === 'script' && v.progress < 10)
+        if (vids.length > 0) {
+          const v = vids[0]
+          const ch = channels.find(c => c.id === v.channelId)
+          fetch('/api/generate/script', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ title: v.title, description: v.description, niche: ch?.niche || 'other', duration: v.duration.replace(/[^0-9]/g,''), lang: settings.lang }),
+          }).then(r => r.json()).then(data => {
+            if (data.script) {
+              setVideos(p => p.map(vid => vid.id === v.id ? { ...vid, script: data.script, tags: data.tags || vid.tags } : vid))
+            }
+          }).catch(() => {})
+        }
+      } catch {}
+      processing = false
     }, 5000)
     return () => clearInterval(iv)
-  }, [loaded, settings.autoAdvance, channels])
+  }, [loaded, settings.autoAdvance, channels, videos, settings.lang])
 
   // Autopilot: auto-publish scheduled videos when their date/time arrives
   useEffect(() => {
