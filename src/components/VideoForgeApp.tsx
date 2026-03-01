@@ -273,11 +273,11 @@ export default function VideoForgeApp({ user, onLogout }: VFProps) {
   const renderCreate = () => (
     <>
       {/* Stats */}
-      <div style={{display:'flex',gap:10,marginBottom:12,flexWrap:'wrap'}}>
+      <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit, minmax(140px, 1fr))',gap:10,marginBottom:12}}>
         {[{v:videos.length,l:'Videos',c:'#F97316',i:'🎬'},{v:activeJobs,l:'En proceso',c:'#8B5CF6',i:'⚡'},{v:videos.filter(v=>v.status==='published').length,l:'Publicados',c:'#22C55E',i:'✅'},{v:channels.length,l:'Canales',c:'#3B82F6',i:'📺'}].map((s,i)=>
-        <div key={i} style={{display:'flex',alignItems:'center',gap:8,background:'var(--bg1)',border:'1px solid var(--bd)',borderRadius:10,padding:'10px 16px',flex:1,minWidth:130}}>
-          <span style={{fontSize:18}}>{s.i}</span>
-          <div><div style={{fontSize:18,fontWeight:800,color:s.c,fontFamily:"'JetBrains Mono',monospace"}}>{s.v}</div><div style={{fontSize:10,color:'var(--t3)'}}>{s.l}</div></div>
+        <div key={i} style={{display:'flex',alignItems:'center',gap:8,background:'var(--bg1)',border:'1px solid var(--bd)',borderRadius:10,padding:'10px 14px'}}>
+          <span style={{fontSize:16}}>{s.i}</span>
+          <div><div style={{fontSize:16,fontWeight:800,color:s.c,fontFamily:"'JetBrains Mono',monospace"}}>{s.v}</div><div style={{fontSize:10,color:'var(--t3)'}}>{s.l}</div></div>
         </div>)}
       </div>
 
@@ -298,11 +298,11 @@ export default function VideoForgeApp({ user, onLogout }: VFProps) {
 
       {channels.length === 0 ? (
         // Onboarding: no channels yet
-        <div style={{background:'var(--bg1)',border:'1px solid var(--bd)',borderRadius:16,padding:40,textAlign:'center'}}>
-          <div style={{fontSize:48,marginBottom:12}}>📺</div>
-          <h2 style={{fontSize:20,fontWeight:800,marginBottom:8}}>Crea tu primer canal</h2>
-          <p style={{color:'var(--t2)',fontSize:14,marginBottom:20,maxWidth:400,margin:'0 auto 20px'}}>Para empezar a generar videos, primero agrega el canal donde se publicarán.</p>
-          <button className="vf-btn vf-btn-glow" style={{fontSize:14,padding:'12px 28px'}} onClick={() => setModal('channel')}>{I.Plus(16)} Crear Canal</button>
+        <div style={{background:'var(--bg1)',border:'1px solid var(--bd)',borderRadius:16,padding:'30px 20px',textAlign:'center'}}>
+          <div style={{fontSize:40,marginBottom:10}}>📺</div>
+          <h2 style={{fontSize:18,fontWeight:800,marginBottom:8}}>Crea tu primer canal</h2>
+          <p style={{color:'var(--t2)',fontSize:13,marginBottom:20,maxWidth:360,margin:'0 auto 20px'}}>Para empezar a generar videos, primero agrega el canal donde se publicarán.</p>
+          <button className="vf-btn vf-btn-glow" style={{fontSize:13,padding:'10px 24px'}} onClick={() => setModal('channel')}>{I.Plus(16)} Crear Canal</button>
         </div>
       ) : (
         // Generator
@@ -646,10 +646,10 @@ export default function VideoForgeApp({ user, onLogout }: VFProps) {
             </div>
             <div className="vf-modal-b">
               {/* Stage visual */}
-              <div style={{display:'flex',gap:4,justifyContent:'center',marginBottom:16,padding:'10px 0',background:'var(--bg2)',borderRadius:10}}>
-                {PIPELINE_STEPS.map((s,i)=><div key={i} style={{display:'flex',flexDirection:'column',alignItems:'center',gap:2,padding:'3px 5px',opacity:i<=stepIdx?1:0.2}}>
-                  <span style={{fontSize:i===stepIdx?20:14,filter:i===stepIdx?`drop-shadow(0 0 6px ${st.color})`:''}}>{s.icon}</span>
-                  <span style={{fontSize:7,fontWeight:600}}>{s.label}</span>
+              <div style={{display:'flex',gap:2,justifyContent:'center',marginBottom:16,padding:'8px 4px',background:'var(--bg2)',borderRadius:10,overflowX:'auto',flexWrap:'wrap'}}>
+                {PIPELINE_STEPS.map((s,i)=><div key={i} style={{display:'flex',flexDirection:'column',alignItems:'center',gap:1,padding:'3px 4px',opacity:i<=stepIdx?1:0.2,flexShrink:0}}>
+                  <span style={{fontSize:i===stepIdx?18:12,filter:i===stepIdx?`drop-shadow(0 0 6px ${st.color})`:''}}>{s.icon}</span>
+                  <span style={{fontSize:6,fontWeight:600,whiteSpace:'nowrap'}}>{s.label}</span>
                 </div>)}
               </div>
 
@@ -900,6 +900,65 @@ const CSS = `
 @keyframes blink{50%{opacity:0}}
 @keyframes spin{to{transform:rotate(360deg)}}.vf-spin{animation:spin 1s linear infinite}
 ::-webkit-scrollbar{width:5px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:var(--bd);border-radius:3px}
-@media(max-width:1100px){.vf-form-grid4{grid-template-columns:1fr 1fr}.vf-niche-g{grid-template-columns:repeat(3,1fr)}}
-@media(max-width:768px){.vf-side{transform:translateX(-240px)}.vf-side.open{transform:translateX(0)}.vf-main{margin-left:0!important}.vf-menu-b{display:block}.vf-form-grid2,.vf-form-grid4{grid-template-columns:1fr}.vf-niche-g{grid-template-columns:repeat(2,1fr)}.vf-ct{padding:14px}.vf-sched-g,.vf-sched-h{grid-template-columns:repeat(4,1fr)}.vf-ch-grid{grid-template-columns:1fr}}
+@media(max-width:1100px){
+  .vf-form-grid4{grid-template-columns:1fr 1fr}
+  .vf-niche-g{grid-template-columns:repeat(3,1fr)}
+  .vf-ch-grid{grid-template-columns:repeat(auto-fill,minmax(240px,1fr))}
+  .vf-steps{gap:6px}
+  .vf-step{min-width:90px;padding:10px 10px}
+}
+@media(max-width:900px){
+  .vf-side{transform:translateX(-240px)}.vf-side.open{transform:translateX(0);box-shadow:8px 0 40px rgba(0,0,0,.6)}
+  .vf-main{margin-left:0!important}
+  .vf-menu-b{display:block}
+  .vf-ct{padding:16px}
+  .vf-top{padding:0 14px}
+  .vf-pg-t{font-size:14px}
+  .vf-sched-g,.vf-sched-h{grid-template-columns:repeat(7,1fr)}
+  .vf-sched-c{padding:4px;min-height:44px}
+  .vf-sched-n{font-size:9px}
+  .vf-ch-grid{grid-template-columns:1fr 1fr}
+}
+@media(max-width:640px){
+  .vf-ct{padding:12px 10px}
+  .vf-top{height:50px;padding:0 12px}
+  .vf-pg-t{font-size:13px}
+  .vf-form-grid2,.vf-form-grid4{grid-template-columns:1fr}
+  .vf-niche-g{grid-template-columns:repeat(3,1fr)}
+  .vf-ch-grid{grid-template-columns:1fr}
+  .vf-modal{width:96%;max-height:90vh;border-radius:12px;margin:8px}
+  .vf-modal-h{padding:12px 14px}
+  .vf-modal-b{padding:12px 14px}
+  .vf-modal-f{padding:10px 14px;flex-wrap:wrap;gap:6px}
+  .vf-modal-f .vf-btn{flex:1;justify-content:center;min-width:0;padding:8px 10px;font-size:11px}
+  .vf-btn{padding:6px 10px;font-size:11px}
+  .vf-btn-glow{padding:7px 12px}
+  .vf-toolbar{gap:6px}
+  .vf-search-i{width:100px}
+  .vf-sel{font-size:11px;padding:5px 8px}
+  .vf-row{padding:7px 0;font-size:12px;gap:8px}
+  .vf-row-title{font-size:12px}
+  .vf-row-meta{font-size:10px}
+  .vf-card-h{padding:10px 12px}
+  .vf-card-b{padding:8px 12px}
+  .vf-steps{gap:4px;padding:4px 0}
+  .vf-step{min-width:70px;padding:8px 6px;border-radius:8px;font-size:11px}
+  .vf-sched-g,.vf-sched-h{grid-template-columns:repeat(7,1fr);gap:2px}
+  .vf-sched-c{padding:3px;min-height:38px;border-radius:4px}
+  .vf-sched-n{font-size:8px}
+  .vf-sched-dot{width:5px;height:5px}
+  .vf-sched-leg{gap:8px}
+  .vf-sched-li{font-size:10px}
+  .vf-set-row{flex-direction:column;align-items:flex-start;gap:8px}
+  .vf-ch-banner{height:55px}
+  .vf-ch-body{padding:10px}
+}
+@media(max-width:380px){
+  .vf-ct{padding:10px 8px}
+  .vf-niche-g{grid-template-columns:repeat(2,1fr)}
+  .vf-niche{padding:8px 4px}
+  .vf-top-r .vf-btn span{display:none}
+  .vf-search-i{width:80px}
+  .vf-modal{width:100%;border-radius:10px;margin:4px}
+}
 `
