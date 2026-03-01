@@ -1,9 +1,11 @@
 'use client'
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef, ReactNode } from 'react'
 import {
-  Channel, VideoItem, AppSettings, AppState, VideoStatus,
+  Channel, VideoItem, AppSettings, AppState, VideoStatus, Platform,
   DEFAULT_SETTINGS, NICHES, PIPELINE_STEPS, genId, nowDate, fmtDur
 } from './store'
+import { isSupabaseConfigured } from './supabase'
+import * as db from './db'
 
 // ═══════════════════════════════════════════════════════
 // TITLE GENERATION
@@ -20,56 +22,45 @@ const TEMPLATES: Record<string, string[]> = {
   gaming:['Top 10 de {t}','{t}: Review Completo','Secretos de {t}','Guía de {t}','{t} es INCREÍBLE'],
   other:['Todo sobre {t}','{t} Explicado','La Verdad de {t}','Descubre {t}','{t}: Lo que Nadie Sabe'],
 }
-
 function generateTitles(idea: string, niche: string, count: number): string[] {
   const tpl = TEMPLATES[niche] || TEMPLATES.other
   const words = idea.split(' ').filter(w => w.length > 3)
   const topics = words.length > 0 ? words : ['el Mundo']
   return Array.from({ length: count }, (_, i) => {
-    const t = tpl[i % tpl.length]
-    const topic = topics[i % topics.length]
-    const cap = topic.charAt(0).toUpperCase() + topic.slice(1)
-    return t.replace('{t}', cap) + (i >= tpl.length ? ` — Pt.${Math.floor(i / tpl.length) + 1}` : '')
+    const t = tpl[i % tpl.length], topic = topics[i % topics.length]
+    return t.replace('{t}', topic.charAt(0).toUpperCase() + topic.slice(1)) + (i >= tpl.length ? ` — Pt.${Math.floor(i / tpl.length) + 1}` : '')
   })
 }
 
 // ═══════════════════════════════════════════════════════
-// SCHEDULE HELPERS
+// SCHEDULE + AUTOPILOT HELPERS
 // ═══════════════════════════════════════════════════════
 const TIMES = ['08:00','10:00','12:00','14:00','16:00','18:00','20:00']
-function scheduleDate(baseDate: string, index: number, perDay: number) {
-  const d = new Date(baseDate); d.setDate(d.getDate() + Math.floor(index / perDay))
-  return d.toISOString().split('T')[0]
+function scheduleDate(base: string, idx: number, perDay: number) {
+  const d = new Date(base); d.setDate(d.getDate() + Math.floor(idx / perDay)); return d.toISOString().split('T')[0]
 }
-function scheduleTime(index: number, perDay: number) { return TIMES[index % perDay] || TIMES[0] }
-
+function scheduleTime(idx: number, perDay: number) { return TIMES[idx % perDay] || TIMES[0] }
 const STATUS_ORDER: VideoStatus[] = ['script','voiceover','visuals','editing','thumbnail','review','scheduled','published']
 
-// ═══════════════════════════════════════════════════════
-// AUTOPILOT IDEAS
-// ═══════════════════════════════════════════════════════
 const IDEA_SEEDS: Record<string, string[]> = {
-  history:['civilizaciones perdidas','batallas épicas','imperios antiguos','inventos que cambiaron todo','misterios históricos','reyes y reinas','revoluciones','descubrimientos arqueológicos','grandes migraciones','culturas olvidadas'],
-  kids:['animales del océano','colores del arcoíris','números y formas','planetas del sistema solar','dinosaurios','estaciones del año','instrumentos musicales','frutas y verduras','partes del cuerpo','medios de transporte'],
-  facts:['el cuerpo humano','el espacio','animales raros','la tecnología','el océano profundo','los volcanes','el cerebro','récords mundiales','fenómenos naturales','inventos accidentales'],
-  horror:['casas embrujadas reales','desapariciones inexplicables','criaturas del bosque','leyendas urbanas','lugares malditos','avistamientos extraños','rituales prohibidos','pueblos fantasma','expediciones perdidas','objetos malditos'],
-  motivation:['hábitos de éxito','mentalidad ganadora','superar el fracaso','disciplina diaria','emprendimiento','liderazgo','productividad','metas y sueños','resiliencia','confianza en ti mismo'],
-  tech:['inteligencia artificial','robots del futuro','gadgets increíbles','apps revolucionarias','ciberseguridad','realidad virtual','drones','impresión 3D','autos eléctricos','tecnología espacial'],
-  lifestyle:['rutinas matutinas','organización del hogar','viajes baratos','recetas rápidas','ejercicio en casa','moda sostenible','meditación','minimalismo','productividad personal','bienestar mental'],
-  finance:['inversiones para principiantes','ahorro inteligente','criptomonedas','ingresos pasivos','errores financieros','emprender con poco','impuestos','bienes raíces','libertad financiera','presupuesto personal'],
-  gaming:['juegos indie','trucos secretos','speedruns épicos','historia de los videojuegos','mejores jefes finales','juegos retro','esports','juegos cooperativos','easter eggs','juegos gratuitos'],
-  other:['datos curiosos','cosas que no sabías','misterios sin resolver','comparaciones increíbles','top 10','antes y después','predicciones del futuro','errores famosos','coincidencias imposibles','experimentos locos'],
+  history:['civilizaciones perdidas','batallas épicas','imperios antiguos','inventos que cambiaron todo','misterios históricos'],
+  kids:['animales del océano','colores del arcoíris','planetas del sistema solar','dinosaurios','estaciones del año'],
+  facts:['el cuerpo humano','el espacio','animales raros','el océano profundo','récords mundiales'],
+  horror:['casas embrujadas reales','desapariciones inexplicables','leyendas urbanas','lugares malditos','pueblos fantasma'],
+  motivation:['hábitos de éxito','mentalidad ganadora','superar el fracaso','disciplina diaria','emprendimiento'],
+  tech:['inteligencia artificial','robots del futuro','gadgets increíbles','ciberseguridad','realidad virtual'],
+  lifestyle:['rutinas matutinas','organización del hogar','viajes baratos','recetas rápidas','ejercicio en casa'],
+  finance:['inversiones para principiantes','ahorro inteligente','criptomonedas','ingresos pasivos','libertad financiera'],
+  gaming:['juegos indie','trucos secretos','speedruns épicos','mejores jefes finales','juegos retro'],
+  other:['datos curiosos','cosas que no sabías','misterios sin resolver','top 10','predicciones del futuro'],
 }
-function pickRandomIdea(niche: string): string {
-  const seeds = IDEA_SEEDS[niche] || IDEA_SEEDS.other
-  return seeds[Math.floor(Math.random() * seeds.length)]
-}
+function pickRandomIdea(niche: string) { const s = IDEA_SEEDS[niche]||IDEA_SEEDS.other; return s[Math.floor(Math.random()*s.length)] }
 
 // ═══════════════════════════════════════════════════════
 // CONTEXT TYPE
 // ═══════════════════════════════════════════════════════
 interface Ctx {
-  channels: Channel[]; videos: VideoItem[]; settings: AppSettings
+  channels: Channel[]; videos: VideoItem[]; settings: AppSettings; userId: string
   addChannel: (d: Pick<Channel,'name'|'platform'|'niche'|'icon'|'color'> & Partial<Channel>) => Channel
   updateChannel: (id: string, d: Partial<Channel>) => void
   deleteChannel: (id: string) => void
@@ -82,25 +73,30 @@ interface Ctx {
   generateVideos: (idea: string, channelId: string, count: number, dur: string, perDay: number, platforms: string[]) => VideoItem[]
   updateSettings: (d: Partial<AppSettings>) => void
   resetAll: () => void
-  renderQueue: string[] // video IDs currently rendering
+  renderQueue: string[]
+  dbMode: 'supabase' | 'local'
 }
 
 const AppContext = createContext<Ctx | null>(null)
-const KEY = 'videoforge_v3'
+const LS_KEY = 'videoforge_v3'
 
-function load(): AppState | null {
+function lsLoad(): AppState | null {
   if (typeof window === 'undefined') return null
-  try { const r = localStorage.getItem(KEY); return r ? JSON.parse(r) : null } catch { return null }
+  try { const r = localStorage.getItem(LS_KEY); return r ? JSON.parse(r) : null } catch { return null }
 }
-function save(s: AppState) {
+function lsSave(s: AppState) {
   if (typeof window === 'undefined') return
-  try { localStorage.setItem(KEY, JSON.stringify(s)) } catch {}
+  try { localStorage.setItem(LS_KEY, JSON.stringify(s)) } catch {}
 }
 
 // ═══════════════════════════════════════════════════════
 // PROVIDER
 // ═══════════════════════════════════════════════════════
-export function AppProvider({ children }: { children: ReactNode }) {
+export function AppProvider({ children, userId }: { children: ReactNode; userId?: string }) {
+  const uid = userId || 'demo'
+  const useDb = isSupabaseConfigured() && uid !== 'demo'
+  const dbMode = useDb ? 'supabase' as const : 'local' as const
+
   const [channels, setChannels] = useState<Channel[]>([])
   const [videos, setVideos] = useState<VideoItem[]>([])
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS)
@@ -108,193 +104,149 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [renderQueue, setRenderQueue] = useState<string[]>([])
   const processingRef = useRef(false)
 
-  // Load
+  // ── LOAD DATA ─────────────────────────────────────
   useEffect(() => {
-    const s = load()
-    if (s) {
-      if (s.channels) setChannels(s.channels)
-      if (s.videos) setVideos(s.videos)
-      if (s.settings) setSettings(prev => ({ ...prev, ...s.settings }))
+    const loadData = async () => {
+      if (useDb) {
+        const [chs, vids] = await Promise.all([db.fetchChannels(uid), db.fetchVideos(uid)])
+        setChannels(chs)
+        setVideos(vids)
+      } else {
+        const s = lsLoad()
+        if (s) {
+          if (s.channels) setChannels(s.channels)
+          if (s.videos) setVideos(s.videos)
+          if (s.settings) setSettings(prev => ({ ...prev, ...s.settings }))
+        }
+      }
+      setLoaded(true)
     }
-    setLoaded(true)
-  }, [])
+    loadData()
+  }, [uid, useDb])
 
-  // Save
+  // ── SAVE TO LOCALSTORAGE (fallback only) ──────────
   useEffect(() => {
-    if (!loaded) return
-    save({ channels, videos, settings })
-  }, [channels, videos, settings, loaded])
+    if (!loaded || useDb) return
+    lsSave({ channels, videos, settings })
+  }, [channels, videos, settings, loaded, useDb])
 
   // ═══════════════════════════════════════════════════
   // AUTO-RENDER PIPELINE
-  // Process one video at a time from the render queue
-  // Calls /api/render which does: script → voice → media → subtitles → music → compose
   // ═══════════════════════════════════════════════════
   useEffect(() => {
     if (!loaded || renderQueue.length === 0 || processingRef.current) return
-
     const processNext = async () => {
       if (processingRef.current) return
       processingRef.current = true
-
       const videoId = renderQueue[0]
       const video = videos.find(v => v.id === videoId)
       const ch = channels.find(c => c.id === video?.channelId)
+      if (!video || !ch) { setRenderQueue(q => q.slice(1)); processingRef.current = false; return }
 
-      if (!video || !ch) {
-        setRenderQueue(q => q.slice(1))
-        processingRef.current = false
-        return
-      }
+      // Mark as rendering
+      const renderUpdate = { status: 'visuals' as VideoStatus, progress: 10, renderData: { ...video.renderData, renderStatus: 'starting' } }
+      setVideos(p => p.map(v => v.id === videoId ? { ...v, ...renderUpdate } : v))
+      if (useDb) db.patchVideo(videoId, renderUpdate)
 
       try {
-        // Update status: rendering started
-        setVideos(p => p.map(v => v.id === videoId ? {
-          ...v, status: 'visuals' as VideoStatus, progress: 10,
-          renderData: { ...v.renderData, renderStatus: 'starting' }
-        } : v))
-
-        // Call the full render pipeline
         const res = await fetch('/api/render', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            videoId: video.id,
-            title: video.title,
-            description: video.description,
-            script: video.script || '',
-            niche: ch.niche,
-            duration: video.duration.replace(/[^0-9]/g, ''),
-            voice: settings.voice,
-            lang: settings.lang,
-            platforms: video.platforms,
-          }),
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ videoId: video.id, title: video.title, description: video.description, script: video.script || '', niche: ch.niche, duration: video.duration.replace(/[^0-9]/g, ''), voice: settings.voice, lang: settings.lang, platforms: video.platforms }),
         })
-
         const data = await res.json()
-
         if (data.error) {
-          setVideos(p => p.map(v => v.id === videoId ? {
-            ...v, status: 'script' as VideoStatus, progress: 5,
-            renderData: { ...v.renderData, error: data.error, renderStatus: 'failed' }
-          } : v))
+          const errUpdate = { status: 'script' as VideoStatus, progress: 5, renderData: { ...video.renderData, error: data.error, renderStatus: 'failed' } }
+          setVideos(p => p.map(v => v.id === videoId ? { ...v, ...errUpdate } : v))
+          if (useDb) db.patchVideo(videoId, errUpdate)
         } else {
-          // Success — update with all render results
-          setVideos(p => p.map(v => v.id === videoId ? {
-            ...v,
-            script: data.script || v.script,
-            audioUrl: data.composition?.audioUrl || v.audioUrl,
+          const okUpdate: Partial<VideoItem> = {
+            script: data.script || video.script, audioUrl: data.composition?.audioUrl,
             status: (data.status === 'rendering' ? 'editing' : 'review') as VideoStatus,
             progress: data.status === 'rendering' ? 65 : 85,
-            renderData: {
-              composition: data.composition,
-              renderId: data.renderId,
-              renderStatus: data.status,
-              steps: data.steps,
-            },
-          } : v))
+            renderData: { composition: data.composition, renderId: data.renderId, renderStatus: data.status, steps: data.steps },
+          }
+          setVideos(p => p.map(v => v.id === videoId ? { ...v, ...okUpdate } : v))
+          if (useDb) db.patchVideo(videoId, okUpdate)
         }
       } catch (err: any) {
-        setVideos(p => p.map(v => v.id === videoId ? {
-          ...v, status: 'script' as VideoStatus, progress: 5,
-          renderData: { ...v.renderData, error: err.message, renderStatus: 'failed' }
-        } : v))
+        const errUpdate = { status: 'script' as VideoStatus, progress: 5, renderData: { ...video.renderData, error: err.message, renderStatus: 'failed' } }
+        setVideos(p => p.map(v => v.id === videoId ? { ...v, ...errUpdate } : v))
+        if (useDb) db.patchVideo(videoId, errUpdate)
       }
-
-      // Remove from queue and allow next
       setRenderQueue(q => q.slice(1))
       processingRef.current = false
     }
-
-    // Small delay to batch state updates
     const timer = setTimeout(processNext, 1000)
     return () => clearTimeout(timer)
-  }, [loaded, renderQueue, videos, channels, settings])
+  }, [loaded, renderQueue, videos, channels, settings, useDb])
 
   // ═══════════════════════════════════════════════════
-  // AUTO-ADVANCE: Move videos through review → scheduled → published
-  // For autopilot channels, skip review
+  // AUTO-ADVANCE: review → scheduled → published
   // ═══════════════════════════════════════════════════
   useEffect(() => {
     if (!loaded || !settings.autoAdvance) return
     const iv = setInterval(() => {
-      const today = nowDate()
-      const nowTime = new Date().toTimeString().slice(0, 5)
-
+      const today = nowDate(), nowTime = new Date().toTimeString().slice(0, 5)
       setVideos(prev => {
         let changed = false
         const next = prev.map(v => {
           const ch = channels.find(c => c.id === v.channelId)
-
-          // Auto-advance review → scheduled for autopilot channels
           if (v.status === 'review' && ch?.autopilot) {
             changed = true
-            return { ...v, status: 'scheduled' as VideoStatus, progress: 90 }
+            const upd = { ...v, status: 'scheduled' as VideoStatus, progress: 90 }
+            if (useDb) db.patchVideo(v.id, { status: 'scheduled', progress: 90 })
+            return upd
           }
-
-          // Auto-publish scheduled videos when their time arrives
-          if (v.status === 'scheduled' && ch?.autopilot) {
-            if (v.scheduledDate <= today && v.scheduledTime <= nowTime) {
-              changed = true
-              return { ...v, status: 'published' as VideoStatus, progress: 100, publishedAt: today }
-            }
+          if (v.status === 'scheduled' && ch?.autopilot && v.scheduledDate <= today && v.scheduledTime <= nowTime) {
+            changed = true
+            const upd = { ...v, status: 'published' as VideoStatus, progress: 100, publishedAt: today }
+            if (useDb) db.patchVideo(v.id, { status: 'published', progress: 100, publishedAt: today })
+            return upd
           }
-
           return v
         })
         return changed ? next : prev
       })
     }, 8000)
     return () => clearInterval(iv)
-  }, [loaded, channels, settings.autoAdvance])
+  }, [loaded, channels, settings.autoAdvance, useDb])
 
   // ═══════════════════════════════════════════════════
-  // AUTOPILOT: Generate new videos + auto-trigger render
+  // AUTOPILOT: auto-generate + auto-render
   // ═══════════════════════════════════════════════════
   useEffect(() => {
     if (!loaded) return
     const iv = setInterval(() => {
       const today = nowDate()
-      const newVideoIds: string[] = []
-
+      const newIds: string[] = []
       setVideos(prev => {
         let newVids: VideoItem[] = []
         channels.forEach(ch => {
           if (!ch.autopilot || !ch.autopilotIdea) return
-          const futureVids = prev.filter(v =>
-            v.channelId === ch.id && v.scheduledDate >= today && v.status !== 'published'
-          )
+          const future = prev.filter(v => v.channelId === ch.id && v.scheduledDate >= today && v.status !== 'published')
           const buffer = ch.autopilotPerDay * 3
-          if (futureVids.length >= buffer) return
-          const need = buffer - futureVids.length
+          if (future.length >= buffer) return
+          const need = buffer - future.length
           const idea = pickRandomIdea(ch.niche) + ' ' + ch.autopilotIdea
           const titles = generateTitles(idea, ch.niche, need)
-          const lastDate = futureVids.length > 0
-            ? futureVids.sort((a, b) => b.scheduledDate.localeCompare(a.scheduledDate))[0].scheduledDate
-            : today
+          const lastDate = future.length > 0 ? future.sort((a, b) => b.scheduledDate.localeCompare(a.scheduledDate))[0].scheduledDate : today
           const base = new Date(lastDate); base.setDate(base.getDate() + 1)
           const baseStr = base.toISOString().split('T')[0]
           titles.forEach((title, i) => {
-            const vid: VideoItem = {
-              id: genId('vid'), title, description: `${ch.autopilotIdea} — Auto`, tags: [ch.niche],
-              script: '', channelId: ch.id, status: 'script' as VideoStatus, progress: 0,
-              duration: fmtDur(ch.autopilotDuration), scheduledDate: scheduleDate(baseStr, i, ch.autopilotPerDay),
-              scheduledTime: scheduleTime(i, ch.autopilotPerDay), platforms: ch.autopilotPlatforms, createdAt: today,
-            }
-            newVids.push(vid)
-            newVideoIds.push(vid.id)
+            const vid: VideoItem = { id: genId('vid'), title, description: `${ch.autopilotIdea} — Auto`, tags: [ch.niche], script: '', channelId: ch.id, status: 'script' as VideoStatus, progress: 0, duration: fmtDur(ch.autopilotDuration), scheduledDate: scheduleDate(baseStr, i, ch.autopilotPerDay), scheduledTime: scheduleTime(i, ch.autopilotPerDay), platforms: ch.autopilotPlatforms, createdAt: today }
+            newVids.push(vid); newIds.push(vid.id)
           })
         })
-        return newVids.length > 0 ? [...prev, ...newVids] : prev
+        if (newVids.length > 0) {
+          if (useDb) db.insertVideoBatch(uid, newVids)
+          return [...prev, ...newVids]
+        }
+        return prev
       })
-
-      // Auto-trigger render for new autopilot videos
-      if (newVideoIds.length > 0) {
-        setRenderQueue(q => [...q, ...newVideoIds])
-      }
+      if (newIds.length > 0) setRenderQueue(q => [...q, ...newIds])
     }, 30000)
     return () => clearInterval(iv)
-  }, [loaded, channels])
+  }, [loaded, channels, uid, useDb])
 
   // ═══════════════════════════════════════════════════
   // CHANNEL CRUD
@@ -308,17 +260,20 @@ export function AppProvider({ children }: { children: ReactNode }) {
       autopilotPlatforms: d.autopilotPlatforms ?? [d.platform],
     }
     setChannels(p => [...p, ch])
+    if (useDb) db.insertChannel(uid, ch)
     return ch
-  }, [])
+  }, [uid, useDb])
 
   const updateChannel = useCallback((id: string, d: Partial<Channel>) => {
     setChannels(p => p.map(c => c.id === id ? { ...c, ...d } : c))
-  }, [])
+    if (useDb) db.patchChannel(id, d)
+  }, [useDb])
 
   const deleteChannel = useCallback((id: string) => {
     setChannels(p => p.filter(c => c.id !== id))
     setVideos(p => p.filter(v => v.channelId !== id))
-  }, [])
+    if (useDb) db.removeChannel(id)
+  }, [useDb])
 
   // ═══════════════════════════════════════════════════
   // VIDEO CRUD
@@ -332,17 +287,20 @@ export function AppProvider({ children }: { children: ReactNode }) {
       platforms: d.platforms || settings.defaultPlatforms, createdAt: nowDate(),
     }
     setVideos(p => [...p, v])
+    if (useDb) db.insertVideo(uid, v)
     return v
-  }, [settings.defaultPlatforms])
+  }, [settings.defaultPlatforms, uid, useDb])
 
   const updateVideo = useCallback((id: string, d: Partial<VideoItem>) => {
     setVideos(p => p.map(v => v.id === id ? { ...v, ...d } : v))
-  }, [])
+    if (useDb) db.patchVideo(id, d)
+  }, [useDb])
 
   const deleteVideo = useCallback((id: string) => {
     setVideos(p => p.filter(v => v.id !== id))
     setRenderQueue(q => q.filter(vid => vid !== id))
-  }, [])
+    if (useDb) db.removeVideo(id)
+  }, [useDb])
 
   const advanceVideo = useCallback((id: string) => {
     setVideos(p => p.map(v => {
@@ -350,17 +308,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const idx = STATUS_ORDER.indexOf(v.status)
       if (idx < 0 || idx >= STATUS_ORDER.length - 1) return v
       const ns = STATUS_ORDER[idx + 1]
-      return { ...v, status: ns, progress: ns === 'published' ? 100 : Math.min(v.progress + 15, 95) }
+      const upd = { status: ns, progress: ns === 'published' ? 100 : Math.min(v.progress + 15, 95) }
+      if (useDb) db.patchVideo(id, upd)
+      return { ...v, ...upd }
     }))
-  }, [])
+  }, [useDb])
 
   const publishVideo = useCallback((id: string) => {
-    setVideos(p => p.map(v =>
-      v.id === id ? { ...v, status: 'published' as VideoStatus, progress: 100, publishedAt: nowDate() } : v
-    ))
-  }, [])
+    const upd = { status: 'published' as VideoStatus, progress: 100, publishedAt: nowDate() }
+    setVideos(p => p.map(v => v.id === id ? { ...v, ...upd } : v))
+    if (useDb) db.patchVideo(id, upd)
+  }, [useDb])
 
-  // Trigger the full render pipeline for a video
   const triggerRender = useCallback((videoId: string) => {
     setRenderQueue(q => q.includes(videoId) ? q : [...q, videoId])
   }, [])
@@ -368,48 +327,31 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // ═══════════════════════════════════════════════════
   // BATCH GENERATE + AUTO-RENDER
   // ═══════════════════════════════════════════════════
-  const generateVideos = useCallback((
-    idea: string, channelId: string, count: number, dur: string, perDay: number, platforms: string[]
-  ) => {
+  const generateVideos = useCallback((idea: string, channelId: string, count: number, dur: string, perDay: number, platforms: string[]) => {
     const ch = channels.find(c => c.id === channelId)
     if (!ch) return []
     const titles = generateTitles(idea, ch.niche, count)
-    const today = nowDate()
-    const plats = platforms as any[]
-    const created: VideoItem[] = []
-
-    titles.forEach((title, i) => {
-      const v: VideoItem = {
-        id: genId('vid'), title, description: `${idea} — Video ${i + 1}`, tags: [ch.niche, 'video'],
-        script: '', channelId, status: 'script' as VideoStatus, progress: 0,
-        duration: fmtDur(dur), scheduledDate: scheduleDate(today, i, perDay),
-        scheduledTime: scheduleTime(i, perDay), platforms: plats, createdAt: today,
-      }
-      created.push(v)
-    })
-
+    const today = nowDate(), plats = platforms as Platform[]
+    const created: VideoItem[] = titles.map((title, i) => ({
+      id: genId('vid'), title, description: `${idea} — Video ${i + 1}`, tags: [ch.niche, 'video'],
+      script: '', channelId, status: 'script' as VideoStatus, progress: 0,
+      duration: fmtDur(dur), scheduledDate: scheduleDate(today, i, perDay),
+      scheduledTime: scheduleTime(i, perDay), platforms: plats, createdAt: today,
+    }))
     setVideos(p => [...p, ...created])
-
-    // Auto-trigger render for all generated videos
+    if (useDb) db.insertVideoBatch(uid, created)
     setRenderQueue(q => [...q, ...created.map(v => v.id)])
-
     return created
-  }, [channels])
+  }, [channels, uid, useDb])
 
-  // ═══════════════════════════════════════════════════
-  // SETTINGS
-  // ═══════════════════════════════════════════════════
-  const updateSettings = useCallback((d: Partial<AppSettings>) => {
-    setSettings(p => ({ ...p, ...d }))
-  }, [])
-
+  const updateSettings = useCallback((d: Partial<AppSettings>) => { setSettings(p => ({ ...p, ...d })) }, [])
   const resetAll = useCallback(() => {
     setChannels([]); setVideos([]); setSettings(DEFAULT_SETTINGS); setRenderQueue([])
-    localStorage.removeItem(KEY)
-  }, [])
+    if (!useDb) localStorage.removeItem(LS_KEY)
+  }, [useDb])
 
   return <AppContext.Provider value={{
-    channels, videos, settings, renderQueue,
+    channels, videos, settings, userId: uid, renderQueue, dbMode,
     addChannel, updateChannel, deleteChannel,
     addVideo, updateVideo, deleteVideo, advanceVideo, publishVideo, triggerRender,
     generateVideos, updateSettings, resetAll,

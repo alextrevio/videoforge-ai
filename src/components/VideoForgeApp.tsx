@@ -30,7 +30,7 @@ interface VFProps { user: { id: string; email: string }; onLogout: () => void }
 
 export default function VideoForgeApp({ user, onLogout }: VFProps) {
   const app = useApp()
-  const { channels, videos, settings, renderQueue,
+  const { channels, videos, settings, renderQueue, dbMode, userId,
     addChannel, updateChannel, deleteChannel,
     addVideo, updateVideo, deleteVideo, advanceVideo, publishVideo, triggerRender,
     generateVideos, updateSettings, resetAll
@@ -591,10 +591,22 @@ export default function VideoForgeApp({ user, onLogout }: VFProps) {
     <div style={{display:'flex',flexDirection:'column',gap:14}}>
       {/* API Status Card */}
       <div className="vf-card">
-        <div className="vf-card-h"><span className="vf-card-t">🔌 Estado de APIs</span></div>
+        <div className="vf-card-h"><span className="vf-card-t">🔌 Estado de APIs</span><span style={{fontSize:10,padding:'2px 8px',borderRadius:5,background:dbMode==='supabase'?'rgba(34,197,94,0.12)':'rgba(249,115,22,0.12)',color:dbMode==='supabase'?'#22C55E':'#F97316',fontWeight:700}}>{dbMode==='supabase'?'☁️ Supabase':'💾 Local'}</span></div>
         <div className="vf-card-b">
           {apiStatus ? <>
-            <div style={{fontSize:11,color:'var(--t3)',marginBottom:10}}>APIs de producción — configura en Vercel → Environment Variables</div>
+            {/* Database */}
+            {apiStatus.database && <>
+              <div style={{fontSize:10,color:'var(--t3)',marginBottom:6}}>Base de datos</div>
+              {Object.entries(apiStatus.database||{}).map(([k,v]:any)=>
+                <div className="vf-set-row" key={k}>
+                  <span style={{width:8,height:8,borderRadius:4,background:v.configured?'var(--ok)':'var(--err)',flexShrink:0}}/>
+                  <div style={{flex:1}}><div style={{fontSize:12,fontWeight:600}}>{v.label}</div></div>
+                  <span style={{fontSize:10,fontWeight:600,color:v.configured?'var(--ok)':'var(--t3)'}}>{v.configured?'Conectado':'No configurado'}</span>
+                </div>
+              )}
+              <div style={{height:1,background:'var(--bd)',margin:'8px 0'}}/>
+            </>}
+            <div style={{fontSize:10,color:'var(--t3)',marginBottom:6}}>APIs de producción — configura en Vercel → Environment Variables</div>
             {Object.entries(apiStatus.apis||{}).map(([k,v]:any)=>
               <div className="vf-set-row" key={k}>
                 <span style={{width:8,height:8,borderRadius:4,background:v.configured?'var(--ok)':'var(--err)',flexShrink:0}}/>

@@ -3,6 +3,7 @@ import { useState, useEffect } from 'react'
 import { AppProvider } from '@/lib/context'
 import VideoForgeApp from '@/components/VideoForgeApp'
 import AuthScreen from '@/components/AuthScreen'
+import { isSupabaseConfigured, supabase } from '@/lib/supabase'
 
 const USER_KEY = 'videoforge_user'
 
@@ -11,11 +12,40 @@ export default function Home() {
   const [checking, setChecking] = useState(true)
 
   useEffect(() => {
-    try {
-      const saved = localStorage.getItem(USER_KEY)
-      if (saved) setUser(JSON.parse(saved))
-    } catch {}
-    setChecking(false)
+    const checkAuth = async () => {
+      if (isSupabaseConfigured()) {
+        try {
+          const { data } = await supabase.auth.getSession()
+          if (data.session?.user) {
+            const u = { id: data.session.user.id, email: data.session.user.email || '' }
+            setUser(u)
+            localStorage.setItem(USER_KEY, JSON.stringify(u))
+            setChecking(false)
+            return
+          }
+        } catch {}
+      }
+      try {
+        const saved = localStorage.getItem(USER_KEY)
+        if (saved) setUser(JSON.parse(saved))
+      } catch {}
+      setChecking(false)
+    }
+    checkAuth()
+
+    if (isSupabaseConfigured()) {
+      const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+        if (session?.user) {
+          const u = { id: session.user.id, email: session.user.email || '' }
+          setUser(u)
+          localStorage.setItem(USER_KEY, JSON.stringify(u))
+        } else if (_event === 'SIGNED_OUT') {
+          setUser(null)
+          localStorage.removeItem(USER_KEY)
+        }
+      })
+      return () => subscription.unsubscribe()
+    }
   }, [])
 
   const handleAuth = (u: {id:string;email:string}) => {
@@ -23,7 +53,10 @@ export default function Home() {
     localStorage.setItem(USER_KEY, JSON.stringify(u))
   }
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    if (isSupabaseConfigured()) {
+      try { await supabase.auth.signOut() } catch {}
+    }
     setUser(null)
     localStorage.removeItem(USER_KEY)
   }
@@ -43,7 +76,7 @@ export default function Home() {
   if (!user) return <AuthScreen onAuth={handleAuth} />
 
   return (
-    <AppProvider>
+    <AppProvider userId={user.id}>
       <VideoForgeApp user={user} onLogout={handleLogout} />
     </AppProvider>
   )

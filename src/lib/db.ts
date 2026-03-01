@@ -92,6 +92,9 @@ export async function fetchVideos(userId: string): Promise<VideoItem[]> {
     scheduledDate: r.scheduled_date || '', scheduledTime: r.scheduled_time || '',
     platforms: (r.platforms || []) as Platform[],
     publishedAt: r.published_at || undefined, createdAt: r.created_at,
+    audioUrl: r.audio_url || undefined, videoUrl: r.video_url || undefined,
+    thumbnailUrl: r.thumbnail_url || undefined,
+    renderData: r.render_data || undefined,
   }))
 }
 
@@ -103,6 +106,8 @@ export async function insertVideo(userId: string, v: VideoItem) {
     script: v.script, status: v.status, progress: v.progress,
     duration: v.duration, scheduled_date: v.scheduledDate || null,
     scheduled_time: v.scheduledTime || null, platforms: v.platforms,
+    audio_url: v.audioUrl || null, video_url: v.videoUrl || null,
+    thumbnail_url: v.thumbnailUrl || null, render_data: v.renderData || null,
   })
 }
 
@@ -114,6 +119,8 @@ export async function insertVideoBatch(userId: string, vids: VideoItem[]) {
     script: v.script, status: v.status, progress: v.progress,
     duration: v.duration, scheduled_date: v.scheduledDate || null,
     scheduled_time: v.scheduledTime || null, platforms: v.platforms,
+    audio_url: v.audioUrl || null, video_url: v.videoUrl || null,
+    thumbnail_url: v.thumbnailUrl || null, render_data: v.renderData || null,
   }))
   await supabase.from('videos').insert(rows)
 }
@@ -129,6 +136,10 @@ export async function patchVideo(id: string, d: Partial<VideoItem>) {
   if (d.scheduledDate !== undefined) map.scheduled_date = d.scheduledDate || null
   if (d.scheduledTime !== undefined) map.scheduled_time = d.scheduledTime || null
   if (d.publishedAt !== undefined) map.published_at = d.publishedAt
+  if (d.audioUrl !== undefined) map.audio_url = d.audioUrl
+  if (d.videoUrl !== undefined) map.video_url = d.videoUrl
+  if (d.thumbnailUrl !== undefined) map.thumbnail_url = d.thumbnailUrl
+  if (d.renderData !== undefined) map.render_data = d.renderData
   if (Object.keys(map).length > 0) await supabase.from('videos').update(map).eq('id', id)
 }
 
