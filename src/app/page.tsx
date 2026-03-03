@@ -3,7 +3,6 @@ import { useState, useEffect } from 'react'
 import { AppProvider } from '@/lib/context'
 import VideoForgeApp from '@/components/VideoForgeApp'
 import AuthScreen from '@/components/AuthScreen'
-import { isSupabaseConfigured, supabase } from '@/lib/supabase'
 
 const USER_KEY = 'videoforge_user'
 
@@ -12,53 +11,21 @@ export default function Home() {
   const [checking, setChecking] = useState(true)
 
   useEffect(() => {
-    const checkAuth = async () => {
-      if (isSupabaseConfigured()) {
-        try {
-          const { data } = await supabase.auth.getSession()
-          if (data.session?.user) {
-            const u = { id: data.session.user.id, email: data.session.user.email || '' }
-            setUser(u)
-            localStorage.setItem(USER_KEY, JSON.stringify(u))
-            setChecking(false)
-            return
-          }
-        } catch {}
-      }
-      try {
-        const saved = localStorage.getItem(USER_KEY)
-        if (saved) setUser(JSON.parse(saved))
-      } catch {}
-      setChecking(false)
-    }
-    checkAuth()
-
-    if (isSupabaseConfigured()) {
-      const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-        if (session?.user) {
-          const u = { id: session.user.id, email: session.user.email || '' }
-          setUser(u)
-          localStorage.setItem(USER_KEY, JSON.stringify(u))
-        } else if (_event === 'SIGNED_OUT') {
-          setUser(null)
-          localStorage.removeItem(USER_KEY)
-        }
-      })
-      return () => subscription.unsubscribe()
-    }
+    try {
+      const saved = localStorage.getItem(USER_KEY)
+      if (saved) setUser(JSON.parse(saved))
+    } catch {}
+    setChecking(false)
   }, [])
 
   const handleAuth = (u: {id:string;email:string}) => {
     setUser(u)
-    localStorage.setItem(USER_KEY, JSON.stringify(u))
+    try { localStorage.setItem(USER_KEY, JSON.stringify(u)) } catch {}
   }
 
-  const handleLogout = async () => {
-    if (isSupabaseConfigured()) {
-      try { await supabase.auth.signOut() } catch {}
-    }
+  const handleLogout = () => {
     setUser(null)
-    localStorage.removeItem(USER_KEY)
+    try { localStorage.removeItem(USER_KEY) } catch {}
   }
 
   if (checking) return (

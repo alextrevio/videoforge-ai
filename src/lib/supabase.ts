@@ -1,26 +1,12 @@
-import { createClient, SupabaseClient } from '@supabase/supabase-js'
+import { createClient } from '@supabase/supabase-js'
 
-let _client: SupabaseClient | null = null
+const url = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
+const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
 
-export function getSupabase(): SupabaseClient {
-  if (!_client) {
-    const url = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
-    const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
-    if (!url || !key) throw new Error('Supabase not configured')
-    _client = createClient(url, key)
-  }
-  return _client
-}
+// Only create client if configured — use dummy URL to prevent build crash
+export const supabase = createClient(
+  url || 'https://placeholder.supabase.co',
+  key || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.placeholder'
+)
 
-// For backwards compat — lazy proxy
-export const supabase = new Proxy({} as SupabaseClient, {
-  get(_, prop) {
-    return (getSupabase() as any)[prop]
-  }
-})
-
-export const isSupabaseConfigured = () => {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
-  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
-  return !!(url && key)
-}
+export const isSupabaseConfigured = () => !!(url && key)
