@@ -1,8 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { supabase, isSupabaseConfigured } from '@/lib/supabase'
 
 // GET /api/oauth/callback?platform=youtube&code=...&state=channelId
-// Handles OAuth callbacks from YouTube, TikTok, Instagram, Facebook
 export async function GET(req: NextRequest) {
   const url = new URL(req.url)
   const platform = url.searchParams.get('platform')
@@ -67,7 +65,8 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    if (tokens?.access_token && isSupabaseConfigured()) {
+    if (tokens?.access_token && process.env.NEXT_PUBLIC_SUPABASE_URL) {
+      const { supabase } = await import('@/lib/supabase')
       const expiresAt = tokens.expires_in
         ? new Date(Date.now() + tokens.expires_in * 1000).toISOString()
         : null
