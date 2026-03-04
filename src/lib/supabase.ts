@@ -1,27 +1,22 @@
-let _supabase: any = null
+// Read env vars at module level — Next.js injects NEXT_PUBLIC_* here
+const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
+const SUPABASE_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
 
-export const isSupabaseConfigured = () => {
-  if (typeof process === 'undefined') return false
-  return !!(process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY)
+export const isSupabaseConfigured = () => !!(SUPABASE_URL && SUPABASE_KEY)
+
+let _client: any = null
+
+function getClient() {
+  if (!_client) {
+    if (!SUPABASE_URL || !SUPABASE_KEY) {
+      throw new Error('Supabase not configured')
+    }
+    const { createClient } = require('@supabase/supabase-js')
+    _client = createClient(SUPABASE_URL, SUPABASE_KEY)
+  }
+  return _client
 }
 
 export const supabase = {
   from: (...args: any[]) => getClient().from(...args),
-  auth: {
-    getSession: () => getClient().auth.getSession(),
-    signInWithPassword: (creds: any) => getClient().auth.signInWithPassword(creds),
-    signOut: () => getClient().auth.signOut(),
-    onAuthStateChange: (cb: any) => getClient().auth.onAuthStateChange(cb),
-  }
-}
-
-function getClient() {
-  if (!_supabase) {
-    const { createClient } = require('@supabase/supabase-js')
-    const url = process.env.NEXT_PUBLIC_SUPABASE_URL
-    const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-    if (!url || !key) throw new Error('Supabase not configured')
-    _supabase = createClient(url, key)
-  }
-  return _supabase
 }
