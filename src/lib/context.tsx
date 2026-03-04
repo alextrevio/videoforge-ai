@@ -133,50 +133,66 @@ export function AppProvider({ children, userId }: { children: ReactNode; userId?
   // ═══════════════════════════════════════════════════
   // AUTO-RENDER PIPELINE
   // ═══════════════════════════════════════════════════
+  const videosRef = useRef(videos)
+  const channelsRef = useRef(channels)
+  const settingsRef = useRef(settings)
+  useEffect(() => { videosRef.current = videos }, [videos])
+  useEffect(() => { channelsRef.current = channels }, [channels])
+  useEffect(() => { settingsRef.current = settings }, [settings])
+
   useEffect(() => {
     if (!loaded || renderQueue.length === 0 || processingRef.current) return
     const processNext = async () => {
       if (processingRef.current) return
       processingRef.current = true
       const videoId = renderQueue[0]
-      const video = videos.find(v => v.id === videoId)
-      const ch = channels.find(c => c.id === video?.channelId)
+      const video = videosRef.current.find(v => v.id === videoId)
+      const ch = channelsRef.current.find(c => c.id === video?.channelId)
       if (!video || !ch) { setRenderQueue(q => q.slice(1)); processingRef.current = false; return }
 
       const updateVid = (d: Partial<VideoItem>) => {
         setVideos(p => p.map(v => v.id === videoId ? { ...v, ...d } : v))
-        if (useDb) db.patchVideo(videoId, d)
+        if (useDb) db.patchVideo(videoId, d).catch(() => {})
       }
 
       try {
         const niche = ch.niche
         const durStr = video.duration.replace(/[^0-9]/g, '') || '60'
+        const sRef = settingsRef.current
 
-        // STEP 1: SCRIPT (~5s)
-        updateVid({ status: 'script' as VideoStatus, progress: 10, renderData: { renderStatus: 'script' } })
+        // STEP 1: SCRIPT
+        updateVid({ status: 'script' as VideoStatus, progress: 10, renderData: { renderStatus: 'generating script...' } })
         let finalScript = video.script
         if (!finalScript || finalScript.length < 20) {
-          const r = await fetch('/api/generate/script', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title: video.title, description: video.description, niche, duration: durStr, lang: settings.lang || 'es-MX' }) })
+          const r = await fetch('/api/generate/script', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title: video.title, description: video.description, niche, duration: durStr, lang: sRef.lang || 'es-MX' }) })
+          if (!r.ok) throw new Error(`Script API error: ${r.status}`)
           const d = await r.json()
+          if (d.error) throw new Error(d.error)
           finalScript = d.script || video.title
-          updateVid({ script: finalScript, progress: 20 })
+          updateVid({ script: finalScript, progress: 25 })
         }
 
-        // STEP 2: VOICEOVER (~5s)
-        updateVid({ status: 'voiceover' as VideoStatus, progress: 30, renderData: { renderStatus: 'voiceover' } })
-        const voRes = await fetch('/api/generate/voiceover', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ script: finalScript, voice: settings.voice || 'mateo', videoId }) })
+        // STEP 2: VOICEOVER
+        updateVid({ status: 'voiceover' as VideoStatus, progress: 30, renderData: { renderStatus: 'generating voice...' } })
+        const voRes = await fetch('/api/generate/voiceover', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ script: finalScript, voice: sRef.voice || 'mateo', videoId }) })
+        if (!voRes.ok) throw new Error(`Voiceover API error: ${voRes.status}`)
         const voData = await voRes.json()
+        if (voData.error) throw new Error(voData.error)
+        updateVid({ progress: 45 })
 
-        // STEP 3: MEDIA (~5s)
-        updateVid({ status: 'visuals' as VideoStatus, progress: 50, renderData: { renderStatus: 'media' } })
-        const sentences = finalScript.replace(/\[.*?\]/g, '').split(/(?<=[.!?])\s+/).filter((s: string) => s.trim().length > 8).slice(0, 8)
+        // STEP 3: MEDIA
+        updateVid({ status: 'visuals' as VideoStatus, progress: 50, renderData: { renderStatus: 'fetching media...' } })
+        const sentences = finalScript.replace(/\[.*?\]/g, '').split(/(?<=[.!?])\s+/).filter((s: string) => s.trim().length > 8).slice(0, 6)
         const scenes = sentences.map((text: string, i: number) => ({ text: text.slice(0, 30), startSec: i * 5, endSec: (i + 1) * 5 }))
         const mediaRes = await fetch('/api/generate/media', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ scenes, niche }) })
+        if (!mediaRes.ok) throw new Error(`Media API error: ${mediaRes.status}`)
         const mediaData = await mediaRes.json()
+        updateVid({ progress: 65 })
 
-        // STEP 4: SUBTITLES (~5s)
-        updateVid({ status: 'editing' as VideoStatus, progress: 65, renderData: { renderStatus: 'subtitles' } })
+        // STEP 4: SUBTITLES
+        updateVid({ status: 'editing' as VideoStatus, progress: 70, renderData: { renderStatus: 'generating subtitles...' } })
         const subRes = await fetch('/api/generate/subtitles', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ script: finalScript, audioUrl: voData.audioUrl || null, duration: durStr }) })
+        if (!subRes.ok) throw new Error(`Subtitles API error: ${subRes.status}`)
         const subData = await subRes.json()
 
         // DONE — mark as review
@@ -191,22 +207,19 @@ export function AppProvider({ children, userId }: { children: ReactNode; userId?
               media: { mode: mediaData.mode, count: (mediaData.media || []).length },
               subtitles: { mode: subData.mode, count: (subData.subtitles || []).length },
             },
-            composition: {
-              audioUrl: voData.audioUrl,
-              media: mediaData.media,
-              subtitles: subData.subtitles,
-            }
+            composition: { audioUrl: voData.audioUrl, media: mediaData.media, subtitles: subData.subtitles }
           }
         })
       } catch (err: any) {
-        updateVid({ status: 'script' as VideoStatus, progress: 5, renderData: { error: err.message, renderStatus: 'failed' } })
+        console.error('[VideoForge] Render error:', err)
+        updateVid({ status: 'script' as VideoStatus, progress: 5, renderData: { error: err.message || 'Unknown error', renderStatus: 'failed' } })
       }
       setRenderQueue(q => q.slice(1))
       processingRef.current = false
     }
-    const timer = setTimeout(processNext, 1000)
+    const timer = setTimeout(processNext, 500)
     return () => clearTimeout(timer)
-  }, [loaded, renderQueue, videos, channels, settings, useDb])
+  }, [loaded, renderQueue, useDb])
 
   // ═══════════════════════════════════════════════════
   // AUTO-ADVANCE: review → scheduled → published

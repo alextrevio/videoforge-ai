@@ -25,10 +25,12 @@ export async function POST(req: NextRequest) {
     const voiceId = voiceMap[voice] || voiceMap.mateo
 
     // Clean script for narration (remove timestamps and stage directions)
+    // Cap at ~500 chars to stay under Vercel 10s timeout
     const cleanScript = script
       .replace(/\[.*?\]/g, '')
       .replace(/\(.*?\)/g, '')
       .trim()
+      .slice(0, 500)
 
     const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
       method: 'POST',

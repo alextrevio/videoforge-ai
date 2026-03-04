@@ -39,8 +39,8 @@ export async function POST(req: NextRequest) {
         'anthropic-version': '2023-06-01',
       },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
-        max_tokens: 2000,
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 1500,
         system: `Eres un guionista experto en videos virales de YouTube/TikTok/Instagram Reels.
 Generas guiones en español (${lang || 'es-MX'}) optimizados para retención.
 El video dura ${durSec} segundos (~${wordCount} palabras).

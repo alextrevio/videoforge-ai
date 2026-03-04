@@ -48,8 +48,8 @@ export async function POST(req: NextRequest) {
             'anthropic-version': '2023-06-01',
           },
           body: JSON.stringify({
-            model: 'claude-sonnet-4-20250514',
-            max_tokens: 500,
+            model: 'claude-haiku-4-5-20251001',
+            max_tokens: 300,
             system: 'Generate Pexels search queries for stock footage. Reply ONLY a JSON array of strings, one per scene. Keep queries short (2-3 words), visual, and specific. No markdown.',
             messages: [{
               role: 'user',
@@ -71,9 +71,10 @@ export async function POST(req: NextRequest) {
       searchQueries = scenes.map(() => niche)
     }
 
-    // ── Step 2: Fetch images from Pexels ──
+    // ── Step 2: Fetch images from Pexels (limit to 4 to stay in timeout) ──
+    const limitedQueries = searchQueries.slice(0, 4)
     const media = await Promise.all(
-      searchQueries.map(async (query: string, i: number) => {
+      limitedQueries.map(async (query: string, i: number) => {
         try {
           const res = await fetch(
             `https://api.pexels.com/v1/search?query=${encodeURIComponent(query)}&per_page=1&orientation=portrait`, {
