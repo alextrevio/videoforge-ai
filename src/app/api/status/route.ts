@@ -1,17 +1,14 @@
 import { NextResponse } from 'next/server'
 
-// GET /api/status
-// Returns which APIs are configured and the app version
 export async function GET() {
   return NextResponse.json({
-    version: '3.0.0',
+    version: '3.1.0',
     database: {
-      supabase: { configured: !!(process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY), label: 'Supabase (Database + Auth)' },
+      supabase: { configured: !!(process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY), label: 'Supabase (Database)' },
     },
     apis: {
-      anthropic:  { configured: !!process.env.ANTHROPIC_API_KEY,  label: 'Claude (Guiones)' },
+      openai:     { configured: !!process.env.OPENAI_API_KEY,     label: 'OpenAI GPT (Guiones + Subtítulos)' },
       elevenlabs: { configured: !!process.env.ELEVENLABS_API_KEY, label: 'ElevenLabs (Voz)' },
-      openai:     { configured: !!process.env.OPENAI_API_KEY,     label: 'OpenAI Whisper (Subtítulos)' },
       pexels:     { configured: !!process.env.PEXELS_API_KEY,     label: 'Pexels (Stock footage)' },
       shotstack:  { configured: !!process.env.SHOTSTACK_API_KEY,  label: 'Shotstack (Render MP4)' },
     },

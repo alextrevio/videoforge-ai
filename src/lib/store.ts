@@ -29,7 +29,7 @@ export interface VideoItem {
 export interface AppSettings {
   autoAdvance: boolean; defaultDuration: string; defaultPlatforms: Platform[]
   lang: string; voice: string
-  anthropicKey: string; elevenLabsKey: string; youtubeKey: string
+  openaiKey: string; elevenLabsKey: string; youtubeKey: string
 }
 
 export interface AppState { channels: Channel[]; videos: VideoItem[]; settings: AppSettings }
@@ -82,7 +82,7 @@ export const STATUS_MAP: Record<VideoStatus, { bg:string; color:string; label:st
 // ── Defaults ────────────────────────────────────────────
 export const DEFAULT_SETTINGS: AppSettings = {
   autoAdvance:true, defaultDuration:'60', defaultPlatforms:['youtube'],
-  lang:'es-MX', voice:'mateo', anthropicKey:'', elevenLabsKey:'', youtubeKey:'',
+  lang:'es-MX', voice:'mateo', openaiKey:'', elevenLabsKey:'', youtubeKey:'',
 }
 
 // ── Helpers ─────────────────────────────────────────────
