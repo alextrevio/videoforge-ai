@@ -180,13 +180,62 @@ export function AppProvider({ children, userId }: { children: ReactNode; userId?
         if (voData.error) throw new Error(voData.error)
         updateVid({ progress: 45 })
 
-        // STEP 3: MEDIA
-        updateVid({ status: 'visuals' as VideoStatus, progress: 50, renderData: { renderStatus: 'fetching media...' } })
-        const sentences = finalScript.replace(/\[.*?\]/g, '').split(/(?<=[.!?])\s+/).filter((s: string) => s.trim().length > 8).slice(0, 6)
-        const scenes = sentences.map((text: string, i: number) => ({ text: text.slice(0, 30), startSec: i * 5, endSec: (i + 1) * 5 }))
-        const mediaRes = await fetch('/api/generate/media', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ scenes, niche }) })
-        if (!mediaRes.ok) throw new Error(`Media API error: ${mediaRes.status}`)
-        const mediaData = await mediaRes.json()
+        // STEP 3: AI VIDEO GENERATION (Kling via fal.ai)
+        updateVid({ status: 'visuals' as VideoStatus, progress: 50, renderData: { renderStatus: 'generating AI video clips...' } })
+        let aiClips: any[] = []
+        const sentences = finalScript.replace(/\[.*?\]/g, '').replace(/\(.*?\)/g, '').split(/(?<=[.!?])\s+/).filter((s: string) => s.trim().length > 8).slice(0, 6)
+
+        // Generate visual prompts from script using GPT
+        let visualPrompts: string[] = sentences.map((s: string) => s.slice(0, 80))
+        try {
+          const promptRes = await fetch('/api/generate/scene-prompts', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ scenes: sentences, niche }) })
+          if (promptRes.ok) {
+            const promptData = await promptRes.json()
+            if (promptData.prompts?.length) visualPrompts = promptData.prompts
+          }
+        } catch {}
+
+        // Submit AI video generation
+        const scenesForVideo = visualPrompts.map((prompt: string) => ({ prompt, duration: 5 }))
+        try {
+          const aiRes = await fetch('/api/generate/ai-video', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ scenes: scenesForVideo, niche, aspectRatio: '9:16' }) })
+          if (aiRes.ok) {
+            const aiData = await aiRes.json()
+            if (aiData.mode === 'kling-fal' && aiData.clips?.length) {
+              // Poll for completion (max 5 minutes)
+              const pendingIds = aiData.clips.filter((c: any) => c.requestId).map((c: any) => ({ sceneIndex: c.sceneIndex, requestId: c.requestId }))
+              if (pendingIds.length > 0) {
+                updateVid({ progress: 55, renderData: { renderStatus: `generating ${pendingIds.length} AI video clips...` } })
+                let attempts = 0
+                while (attempts < 60) { // 60 * 5s = 5 min max
+                  await new Promise(r => setTimeout(r, 5000))
+                  attempts++
+                  try {
+                    const pollRes = await fetch('/api/generate/ai-video/status', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ requestIds: pendingIds }) })
+                    if (pollRes.ok) {
+                      const pollData = await pollRes.json()
+                      const completed = pollData.clips?.filter((c: any) => c.status === 'completed') || []
+                      updateVid({ progress: 55 + Math.round((completed.length / pendingIds.length) * 10), renderData: { renderStatus: `AI video: ${completed.length}/${pendingIds.length} clips ready` } })
+                      if (pollData.allComplete) {
+                        aiClips = pollData.clips.filter((c: any) => c.videoUrl)
+                        break
+                      }
+                    }
+                  } catch {}
+                }
+              }
+            }
+            // Fallback: use Pexels images if no AI clips
+            if (aiClips.length === 0 && aiData.mode === 'simulation') {
+              const scenes2 = sentences.map((text: string, i: number) => ({ text: text.slice(0, 30), startSec: i * 5, endSec: (i + 1) * 5 }))
+              const mediaRes = await fetch('/api/generate/media', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ scenes: scenes2, niche }) })
+              if (mediaRes.ok) {
+                const mediaData2 = await mediaRes.json()
+                aiClips = (mediaData2.media || []).map((m: any) => ({ ...m, videoUrl: null, imageUrl: m.imageUrl }))
+              }
+            }
+          }
+        } catch {}
         updateVid({ progress: 65 })
 
         // STEP 4: SUBTITLES
@@ -204,10 +253,10 @@ export function AppProvider({ children, userId }: { children: ReactNode; userId?
             steps: {
               script: { length: finalScript.length },
               voiceover: { mode: voData.mode, hasAudio: !!voData.audioUrl },
-              media: { mode: mediaData.mode, count: (mediaData.media || []).length },
+              aiVideo: { clipCount: aiClips.length, mode: aiClips.length > 0 ? 'kling' : 'pexels-fallback' },
               subtitles: { mode: subData.mode, count: (subData.subtitles || []).length },
             },
-            composition: { audioUrl: voData.audioUrl, media: mediaData.media, subtitles: subData.subtitles }
+            composition: { audioUrl: voData.audioUrl, clips: aiClips, subtitles: subData.subtitles }
           }
         })
       } catch (err: any) {

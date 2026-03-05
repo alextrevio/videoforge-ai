@@ -9,7 +9,8 @@ export async function GET() {
     apis: {
       openai:     { configured: !!process.env.OPENAI_API_KEY,     label: 'OpenAI GPT (Guiones + Subtítulos)' },
       elevenlabs: { configured: !!process.env.ELEVENLABS_API_KEY, label: 'ElevenLabs (Voz)' },
-      pexels:     { configured: !!process.env.PEXELS_API_KEY,     label: 'Pexels (Stock footage)' },
+      pexels:     { configured: !!process.env.PEXELS_API_KEY,     label: 'Pexels (Stock footage fallback)' },
+      fal:        { configured: !!process.env.FAL_KEY,             label: 'Kling AI via fal.ai (Video IA)' },
       shotstack:  { configured: !!process.env.SHOTSTACK_API_KEY,  label: 'Shotstack (Render MP4)' },
     },
     oauth: {
