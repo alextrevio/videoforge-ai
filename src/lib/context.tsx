@@ -160,33 +160,46 @@ export function AppProvider({ children, userId }: { children: ReactNode; userId?
         const durStr = video.duration.replace(/[^0-9]/g, '') || '60'
         const sRef = settingsRef.current
 
-        // STEP 1: SCRIPT (GPT)
+        // STEP 1: SCRIPT (GPT generates scene-based script)
         updateVid({ status: 'script' as VideoStatus, progress: 10, renderData: { renderStatus: 'generating script...' } })
         let finalScript = video.script
+        let scriptScenes: string[] = []
         if (!finalScript || finalScript.length < 20) {
           const r = await fetch('/api/generate/script', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title: video.title, description: video.description, niche, duration: durStr, lang: sRef.lang || 'es-MX' }) })
           if (!r.ok) throw new Error(`Script API error: ${r.status}`)
           const d = await r.json()
           if (d.error) throw new Error(d.error)
           finalScript = d.script || video.title
+          scriptScenes = d.scenes || []
+          console.log('[VideoForge] Script generated:', finalScript.length, 'chars,', scriptScenes.length, 'scenes')
           updateVid({ script: finalScript, progress: 25 })
         }
 
-        // STEP 2: VISUAL PROMPTS (GPT converts script → English cinematic prompts)
-        updateVid({ status: 'visuals' as VideoStatus, progress: 30, renderData: { renderStatus: 'creating visual prompts...' } })
-        const sentences = finalScript.replace(/\[.*?\]/g, '').replace(/\(.*?\)/g, '').split(/(?<=[.!?])\s+/).filter((s: string) => s.trim().length > 8).slice(0, 6)
-        let visualPrompts: string[] = sentences.map((s: string) => s.slice(0, 80))
+        // If script didn't return structured scenes, split by paragraphs
+        if (scriptScenes.length === 0) {
+          scriptScenes = finalScript.replace(/\[.*?\]/g, '').replace(/\(.*?\)/g, '')
+            .split(/\n\n+/)
+            .map((s: string) => s.trim())
+            .filter((s: string) => s.length > 15)
+            .slice(0, 4)
+        }
+        if (scriptScenes.length === 0) scriptScenes = [finalScript.slice(0, 200)]
+
+        // STEP 2: VISUAL STORYBOARD (GPT as creative director — cohesive scenes)
+        updateVid({ status: 'visuals' as VideoStatus, progress: 30, renderData: { renderStatus: 'creating visual storyboard...' } })
+        let visualPrompts: string[] = scriptScenes.map((s: string) => s.slice(0, 80))
         try {
-          const promptRes = await fetch('/api/generate/scene-prompts', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ scenes: sentences, niche }) })
+          const promptRes = await fetch('/api/generate/scene-prompts', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ scenes: scriptScenes, niche, title: video.title, script: finalScript }) })
           if (promptRes.ok) {
             const promptData = await promptRes.json()
+            console.log('[VideoForge] Storyboard:', promptData.mode, '| Concept:', promptData.concept)
             if (promptData.prompts?.length) visualPrompts = promptData.prompts
           }
         } catch {}
         updateVid({ progress: 40 })
 
-        // STEP 3: AI VIDEO + AUDIO (Kling via fal.ai — generates video WITH native audio)
-        updateVid({ status: 'editing' as VideoStatus, progress: 45, renderData: { renderStatus: 'generating AI video + audio...' } })
+        // STEP 3: AI VIDEO (Kling generates each scene as a clip)
+        updateVid({ status: 'editing' as VideoStatus, progress: 45, renderData: { renderStatus: 'generating AI video clips...' } })
         let aiClips: any[] = []
         const scenesForVideo = visualPrompts.map((prompt: string) => ({ prompt, duration: 5 }))
         try {
@@ -220,7 +233,7 @@ export function AppProvider({ children, userId }: { children: ReactNode; userId?
             }
             // Fallback: use Pexels images if no AI clips (any reason: no FAL_KEY, errors, timeout)
             if (aiClips.length === 0) {
-              const scenes2 = sentences.map((text: string, i: number) => ({ text: text.slice(0, 30), startSec: i * 5, endSec: (i + 1) * 5 }))
+              const scenes2 = scriptScenes.map((text: string, i: number) => ({ text: text.slice(0, 30), startSec: i * 5, endSec: (i + 1) * 5 }))
               const mediaRes = await fetch('/api/generate/media', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ scenes: scenes2, niche }) })
               if (mediaRes.ok) {
                 const mediaData2 = await mediaRes.json()
@@ -232,7 +245,7 @@ export function AppProvider({ children, userId }: { children: ReactNode; userId?
         // Final fallback: if AI video failed completely and no clips at all
         if (aiClips.length === 0) {
           try {
-            const scenes2 = sentences.map((text: string, i: number) => ({ text: text.slice(0, 30), startSec: i * 5, endSec: (i + 1) * 5 }))
+            const scenes2 = scriptScenes.map((text: string, i: number) => ({ text: text.slice(0, 30), startSec: i * 5, endSec: (i + 1) * 5 }))
             const mediaRes = await fetch('/api/generate/media', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ scenes: scenes2, niche }) })
             if (mediaRes.ok) {
               const mediaData2 = await mediaRes.json()
