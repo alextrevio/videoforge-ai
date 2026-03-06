@@ -225,8 +225,8 @@ export function AppProvider({ children, userId }: { children: ReactNode; userId?
                 }
               }
             }
-            // Fallback: use Pexels images if no AI clips
-            if (aiClips.length === 0 && aiData.mode === 'simulation') {
+            // Fallback: use Pexels images if no AI clips (any reason: no FAL_KEY, errors, timeout)
+            if (aiClips.length === 0) {
               const scenes2 = sentences.map((text: string, i: number) => ({ text: text.slice(0, 30), startSec: i * 5, endSec: (i + 1) * 5 }))
               const mediaRes = await fetch('/api/generate/media', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ scenes: scenes2, niche }) })
               if (mediaRes.ok) {
@@ -236,6 +236,17 @@ export function AppProvider({ children, userId }: { children: ReactNode; userId?
             }
           }
         } catch {}
+        // Final fallback: if AI video failed completely and no clips at all
+        if (aiClips.length === 0) {
+          try {
+            const scenes2 = sentences.map((text: string, i: number) => ({ text: text.slice(0, 30), startSec: i * 5, endSec: (i + 1) * 5 }))
+            const mediaRes = await fetch('/api/generate/media', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ scenes: scenes2, niche }) })
+            if (mediaRes.ok) {
+              const mediaData2 = await mediaRes.json()
+              aiClips = (mediaData2.media || []).map((m: any) => ({ ...m, videoUrl: null, imageUrl: m.imageUrl }))
+            }
+          } catch {}
+        }
         updateVid({ progress: 65 })
 
         // STEP 4: SUBTITLES

@@ -71,8 +71,6 @@ export default function VideoForgeApp({ user, onLogout }: VFProps) {
   const [editTime, setEditTime] = useState('')
   const [editScript, setEditScript] = useState('')
   const [genScriptLoading, setGenScriptLoading] = useState(false)
-  const [renderLoading, setRenderLoading] = useState(false)
-  const [renderResult, setRenderResult] = useState<any>(null)
   const [detailTab, setDetailTab] = useState<'edit'|'script'|'preview'>('edit')
 
   // Toast
@@ -211,40 +209,17 @@ export default function VideoForgeApp({ user, onLogout }: VFProps) {
 
   const doRender = async () => {
     if (!detailVid) return
-    setRenderLoading(true); setRenderResult(null)
-    try {
-      const ch = getChannel(detailVid.channelId)
-      const res = await fetch('/api/render', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          videoId: detailVid.id, title: editTitle, description: editDesc,
-          script: editScript, niche: ch?.niche || 'other',
-          duration: detailVid.duration.replace(/[^0-9]/g,''),
-          voice: settings.voice, lang: settings.lang,
-          platforms: detailVid.platforms,
-        }),
-      })
-      const data = await res.json()
-      setRenderResult(data)
-      if (data.script && !editScript) setEditScript(data.script)
-      // Save render data to video state
-      updateVideo(detailVid.id, {
-        script: data.script || editScript,
-        audioUrl: data.composition?.audioUrl,
-        status: data.status === 'rendering' ? 'editing' : 'review',
-        progress: data.status === 'rendering' ? 65 : 85,
-        renderData: { composition: data.composition, renderId: data.renderId, renderStatus: data.status, steps: data.steps },
-      })
-      if (data.status === 'rendering') {
-        toast('🎬 Video en renderización...')
-      } else if (data.status === 'preview') {
-        toast('✅ Video producido — preview listo')
-      } else {
-        toast(`⚠️ Render: ${data.status || 'error'}`)
-      }
-      setDetailTab('preview')
-    } catch (e: any) { toast(`Error: ${e.message}`) }
-    setRenderLoading(false)
+    // Save any edits first
+    if (editScript && editScript !== detailVid.script) {
+      updateVideo(detailVid.id, { script: editScript })
+    }
+    if (editTitle && editTitle !== detailVid.title) {
+      updateVideo(detailVid.id, { title: editTitle })
+    }
+    // Trigger the pipeline via render queue
+    triggerRender(detailVid.id)
+    toast('🚀 Video agregado a la cola de producción')
+    setDetailVid(null)
   }
 
   const doOAuthConnect = (channelId: string, platform: string) => {
@@ -712,7 +687,7 @@ export default function VideoForgeApp({ user, onLogout }: VFProps) {
               <div style={{display:'flex',gap:2}}>
                 {(['edit','script','preview'] as const).map(t=><button key={t} onClick={()=>setDetailTab(t)} style={{padding:'4px 12px',borderRadius:6,border:'none',background:detailTab===t?'var(--accg)':'transparent',color:detailTab===t?'var(--acc)':'var(--t3)',fontSize:11,fontWeight:600,cursor:'pointer',fontFamily:'inherit'}}>{t==='edit'?'✏️ Info':t==='script'?'📝 Guión':'👁️ Preview'}</button>)}
               </div>
-              <button className="vf-modal-x" onClick={()=>{setDetailVid(null);setRenderResult(null);setDetailTab('edit')}}>{I.X(18)}</button>
+              <button className="vf-modal-x" onClick={()=>{setDetailVid(null);setDetailTab('edit')}}>{I.X(18)}</button>
             </div>
             <div className="vf-modal-b">
               {/* Stage visual */}
@@ -757,73 +732,66 @@ export default function VideoForgeApp({ user, onLogout }: VFProps) {
 
               {/* Tab: Preview */}
               {detailTab==='preview'&&<>
-                {renderResult ? (
+                {v.renderData?.renderStatus==='complete' ? (
                   <div>
-                    {/* Video phone mockup preview */}
-                    <div style={{background:'#000',borderRadius:14,overflow:'hidden',aspectRatio:'9/16',maxHeight:380,position:'relative',display:'flex',alignItems:'center',justifyContent:'center',margin:'0 auto',maxWidth:214,border:'2px solid #222'}}>
-                      {/* BG gradient */}
-                      <div style={{position:'absolute',inset:0,background:renderResult.composition?.bgGradient?`linear-gradient(165deg,${renderResult.composition.bgGradient[0]},${renderResult.composition.bgGradient[1]})`:'#0a0a12'}}/>
-                      {/* Vignette */}
-                      <div style={{position:'absolute',inset:0,background:'radial-gradient(ellipse at 50% 50%, transparent 30%, rgba(0,0,0,0.6) 100%)'}}/>
-                      {/* Hook text preview */}
-                      {renderResult.composition?.hookText&&<div style={{position:'absolute',top:0,left:0,right:0,bottom:0,display:'flex',alignItems:'center',justifyContent:'center',padding:16}}>
-                        <p style={{fontSize:14,fontWeight:900,color:'#fff',textAlign:'center',textTransform:'uppercase',textShadow:`0 0 20px ${renderResult.composition.accentColor}, 0 2px 8px rgba(0,0,0,0.8)`,letterSpacing:'-0.5px',lineHeight:1.2}}>{renderResult.composition.hookText}</p>
-                      </div>}
-                      {/* Subtitle preview at bottom */}
-                      <div style={{position:'absolute',bottom:28,left:6,right:6,textAlign:'center',display:'flex',flexWrap:'wrap',justifyContent:'center',gap:'2px 4px'}}>
-                        {(renderResult.composition?.subtitles||[]).slice(0,6).map((w:any,i:number)=>{
-                          const isActive=i===2
-                          return <span key={i} style={{fontSize:isActive?(w.emphasis?10:9):8,fontWeight:900,color:isActive?'#fff':'rgba(255,255,255,0.35)',background:isActive?(renderResult.composition?.accentColor||'#F97316'):'transparent',padding:isActive?'1px 5px':'1px 1px',borderRadius:3,textTransform:'uppercase',transform:isActive&&w.emphasis?'scale(1.15)':''}}>{w.word}</span>
-                        })}
+                    {/* AI Video clips preview */}
+                    {(v.renderData.composition?.clips||[]).some((c:any)=>c.videoUrl) ? (
+                      <div style={{display:'grid',gridTemplateColumns:'repeat(2,1fr)',gap:6,marginBottom:12}}>
+                        {(v.renderData.composition.clips||[]).filter((c:any)=>c.videoUrl).slice(0,4).map((clip:any,i:number)=>(
+                          <video key={i} src={clip.videoUrl} style={{width:'100%',borderRadius:8,aspectRatio:'9/16',objectFit:'cover',background:'#000'}} controls muted playsInline/>
+                        ))}
                       </div>
-                      {/* Accent bars */}
-                      <div style={{position:'absolute',top:0,left:0,right:0,height:1,background:renderResult.composition?.accentColor,opacity:0.4}}/>
-                      <div style={{position:'absolute',bottom:0,left:0,right:0,height:1,background:renderResult.composition?.accentColor,opacity:0.4}}/>
-                      <div style={{position:'absolute',left:0,top:'25%',bottom:'25%',width:2,background:`linear-gradient(180deg,transparent,${renderResult.composition?.accentColor||'#F97316'},transparent)`,opacity:0.3}}/>
-                      {/* Play */}
-                      <div style={{width:36,height:36,borderRadius:18,background:'rgba(255,255,255,0.12)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:1,border:'2px solid rgba(255,255,255,0.2)'}}>{I.Play(14)}</div>
-                    </div>
+                    ) : (
+                      <div style={{background:'#000',borderRadius:14,overflow:'hidden',aspectRatio:'9/16',maxHeight:380,position:'relative',display:'flex',alignItems:'center',justifyContent:'center',margin:'0 auto',maxWidth:214,border:'2px solid #222'}}>
+                        <div style={{position:'absolute',inset:0,background:'linear-gradient(165deg,#0a0a12,#12122a)'}}/>
+                        <div style={{position:'absolute',inset:0,background:'radial-gradient(ellipse at 50% 50%, transparent 30%, rgba(0,0,0,0.6) 100%)'}}/>
+                        {(v.renderData.composition?.subtitles||[]).length>0&&<div style={{position:'absolute',bottom:28,left:6,right:6,textAlign:'center',display:'flex',flexWrap:'wrap',justifyContent:'center',gap:'2px 4px'}}>
+                          {(v.renderData.composition.subtitles||[]).slice(0,8).map((w:any,i:number)=><span key={i} style={{fontSize:i===3?10:8,fontWeight:900,color:i===3?'#fff':'rgba(255,255,255,0.35)',background:i===3?'#F97316':'transparent',padding:i===3?'1px 5px':'1px 1px',borderRadius:3,textTransform:'uppercase'}}>{w.word}</span>)}
+                        </div>}
+                        <div style={{width:36,height:36,borderRadius:18,background:'rgba(255,255,255,0.12)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:1,border:'2px solid rgba(255,255,255,0.2)'}}>{I.Play(14)}</div>
+                      </div>
+                    )}
 
-                    {/* Pipeline steps — rich detail */}
+                    {/* Audio player */}
+                    {v.audioUrl&&<div style={{marginTop:10}}><audio src={v.audioUrl} controls style={{width:'100%',height:32,borderRadius:8}}/></div>}
+
+                    {/* Pipeline steps */}
                     <div style={{marginTop:14,background:'var(--bg2)',borderRadius:10,padding:10}}>
                       {[
-                        {icon:'📝',label:'Guión',detail:`${renderResult.steps?.script?.mode||'—'} · ${renderResult.steps?.script?.length||0} chars`},
-                        {icon:'🎣',label:'Hook',detail:renderResult.steps?.hook?.text||'—'},
-                        {icon:'🎬',label:'Escenas',detail:`${renderResult.steps?.scenes?.count||0} escenas · ~${renderResult.steps?.scenes?.avgDuration||0}s cada una`},
-                        {icon:'🖼️',label:'B-Roll',detail:`${renderResult.steps?.media?.mainImages||0} fondos + ${renderResult.steps?.media?.bRollClips||0} B-roll clips`},
-                        {icon:'🎙️',label:'Narración',detail:renderResult.steps?.voiceover?.mode||'—'},
-                        {icon:'💬',label:'Subtítulos',detail:`${renderResult.steps?.subtitles?.count||0} palabras · ${renderResult.steps?.subtitles?.emphasisCount||0} con énfasis`},
-                        {icon:'🎵',label:'Música',detail:renderResult.steps?.music?.niche||'—'},
-                        {icon:'🎞️',label:'Render',detail:renderResult.steps?.render?.mode||'—'},
-                        {icon:'📢',label:'CTA',detail:renderResult.steps?.cta?.text||'—'},
-                        {icon:'✨',label:'FX',detail:'Partículas + Flare + Beat Sync + Zoom Punch'},
+                        {icon:'📝',label:'Guión',detail:`${v.renderData.steps?.script?.length||0} chars`},
+                        {icon:'🎙️',label:'Narración',detail:v.renderData.steps?.voiceover?.mode||'—'},
+                        {icon:'🎬',label:'Video IA',detail:`${v.renderData.steps?.aiVideo?.clipCount||0} clips · ${v.renderData.steps?.aiVideo?.mode||'—'}`},
+                        {icon:'💬',label:'Subtítulos',detail:`${v.renderData.steps?.subtitles?.count||0} palabras`},
                       ].map((s,i)=>
-                        <div key={i} style={{display:'flex',alignItems:'center',gap:8,padding:'4px 0',borderBottom:i<7?'1px solid rgba(30,30,42,0.5)':'none',fontSize:11}}>
+                        <div key={i} style={{display:'flex',alignItems:'center',gap:8,padding:'4px 0',borderBottom:i<3?'1px solid rgba(30,30,42,0.5)':'none',fontSize:11}}>
                           <span>{s.icon}</span>
                           <span style={{fontWeight:600,minWidth:65}}>{s.label}</span>
-                          <span style={{color:'var(--t3)',flex:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{s.detail}</span>
+                          <span style={{color:'var(--t3)',flex:1}}>{s.detail}</span>
                           <span style={{color:'var(--ok)',fontSize:10}}>✓</span>
                         </div>
                       )}
                     </div>
-
-                    <div style={{marginTop:8,fontSize:11,fontWeight:600,textAlign:'center',color:renderResult.status==='rendering'?'var(--ok)':'var(--warn)'}}>
-                      {renderResult.status==='rendering'?'🎬 Renderizando MP4...':'👁️ Preview listo — agrega SHOTSTACK_API_KEY para MP4 real'}
-                    </div>
+                  </div>
+                ) : v.renderData?.renderStatus==='failed' ? (
+                  <div style={{textAlign:'center',padding:30}}>
+                    <div style={{fontSize:48,marginBottom:10}}>❌</div>
+                    <p style={{color:'#F87171',fontSize:14,fontWeight:700,marginBottom:6}}>Error en producción</p>
+                    <p style={{color:'var(--t3)',fontSize:12,marginBottom:16}}>{v.renderData.error||'Error desconocido'}</p>
+                    <button className="vf-btn vf-btn-glow" onClick={()=>{triggerRender(v.id);toast('🔄 Re-intentando...');setDetailVid(null)}}>🔄 Reintentar</button>
+                  </div>
+                ) : v.renderData?.renderStatus ? (
+                  <div style={{textAlign:'center',padding:30}}>
+                    <div style={{fontSize:48,marginBottom:10,animation:'spin 2s linear infinite'}}>⚙️</div>
+                    <p style={{color:'var(--acc)',fontSize:14,fontWeight:700,marginBottom:6}}>Produciendo...</p>
+                    <p style={{color:'var(--t3)',fontSize:12}}>{v.renderData.renderStatus}</p>
+                    <style>{`@keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}`}</style>
                   </div>
                 ) : (
                   <div style={{textAlign:'center',padding:30}}>
                     <div style={{fontSize:48,marginBottom:10}}>🎬</div>
-                    <p style={{color:'var(--t1)',fontSize:15,fontWeight:700,marginBottom:6}}>Producir Video Completo</p>
-                    <p style={{color:'var(--t3)',fontSize:12,marginBottom:16,lineHeight:1.5}}>Hook → Guión → Narración → B-Roll<br/>Subtítulos CapCut → Música → MP4</p>
-                    <div style={{display:'flex',flexWrap:'wrap',gap:6,justifyContent:'center',marginBottom:20}}>
-                      {['🎣 Hook 2s','🎙️ Voz IA','🖼️ B-Roll','💬 Subtítulos','🎵 Música','⚡ Transiciones','✨ Partículas','🔦 Lens Flare','💓 Beat Sync','📊 Barra','📢 CTA','🎨 Color Grade'].map(f=>
-                        <span key={f} style={{fontSize:10,padding:'3px 8px',borderRadius:5,background:'var(--bg2)',border:'1px solid var(--bd)',color:'var(--t2)'}}>{f}</span>
-                      )}
-                    </div>
-                    <button className="vf-btn vf-btn-glow" style={{padding:'14px 32px',fontSize:15}} onClick={doRender} disabled={renderLoading}>
-                      {renderLoading?<><span style={{display:'inline-flex',animation:'spin 1s linear infinite'}}>{I.Loader(18)}</span> Produciendo...</>:'🚀 Producir Video'}
-                    </button>
+                    <p style={{color:'var(--t1)',fontSize:15,fontWeight:700,marginBottom:6}}>Producir Video con IA</p>
+                    <p style={{color:'var(--t3)',fontSize:12,marginBottom:16,lineHeight:1.5}}>Guión GPT → Voz ElevenLabs → Video Kling AI<br/>Subtítulos automáticos → Video completo</p>
+                    <button className="vf-btn vf-btn-glow" style={{padding:'14px 32px',fontSize:15}} onClick={doRender}>🚀 Producir Video</button>
                   </div>
                 )}
               </>}
@@ -837,8 +805,6 @@ export default function VideoForgeApp({ user, onLogout }: VFProps) {
               {v.status==='review'&&<button className="vf-btn vf-btn-ghost" onClick={doAdvance}>{I.Calendar(14)} Programar</button>}
               {v.status==='scheduled'&&<button className="vf-btn vf-btn-glow" onClick={doPublish}>{I.Send(14)} Publicar Ahora</button>}
               {detailTab!=='preview'&&<button className="vf-btn vf-btn-glow" onClick={doSaveEdit}>{I.Check(14)} Guardar</button>}
-              {detailTab==='preview'&&!renderResult&&<button className="vf-btn vf-btn-glow" onClick={doRender} disabled={renderLoading}>{renderLoading?'Produciendo...':'🚀 Producir'}</button>}
-              {detailTab==='preview'&&renderResult&&<button className="vf-btn vf-btn-ghost" onClick={doRender} disabled={renderLoading}>{renderLoading?'Re-produciendo...':'🔄 Re-producir'}</button>}
               {v.renderData?.error&&<span style={{fontSize:10,color:'#F87171'}}>⚠️ {v.renderData.error}</span>}
             </div>
           </div>
