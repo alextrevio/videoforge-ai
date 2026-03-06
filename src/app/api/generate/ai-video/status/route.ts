@@ -11,33 +11,39 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'FAL_KEY not configured' }, { status: 400 })
     }
 
-    const model = 'fal-ai/kling-video/v1/standard/text-to-video'
-
     const results = await Promise.all(
       (requestIds || []).map(async (item: any) => {
         try {
+          // fal.ai status endpoint — use GET with request_id in URL
           const statusRes = await fetch(
-            `https://queue.fal.run/${model}/requests/${item.requestId}/status`,
-            { headers: { 'Authorization': `Key ${falKey}` } }
+            `https://queue.fal.run/requests/${item.requestId}/status`,
+            {
+              method: 'GET',
+              headers: { 'Authorization': `Key ${falKey}` },
+            }
           )
 
           if (!statusRes.ok) {
             const errText = await statusRes.text()
-            console.error(`[fal.ai] Status error for ${item.requestId}:`, errText)
-            return { sceneIndex: item.sceneIndex, requestId: item.requestId, status: 'error', error: errText.slice(0, 200) }
+            console.error(`[fal.ai] Status check failed for ${item.requestId}:`, statusRes.status, errText.slice(0, 200))
+            return { sceneIndex: item.sceneIndex, requestId: item.requestId, status: 'processing' }
           }
 
           const statusData = await statusRes.json()
+          console.log(`[fal.ai] Scene ${item.sceneIndex} status:`, statusData.status)
 
           if (statusData.status === 'COMPLETED') {
-            // Fetch result
+            // Fetch the result
             const resultRes = await fetch(
-              `https://queue.fal.run/${model}/requests/${item.requestId}`,
-              { headers: { 'Authorization': `Key ${falKey}` } }
+              `https://queue.fal.run/requests/${item.requestId}`,
+              {
+                method: 'GET',
+                headers: { 'Authorization': `Key ${falKey}` },
+              }
             )
             if (resultRes.ok) {
               const resultData = await resultRes.json()
-              console.log(`[fal.ai] Scene ${item.sceneIndex} completed:`, resultData.video?.url?.slice(0, 80))
+              console.log(`[fal.ai] Scene ${item.sceneIndex} video URL:`, resultData.video?.url?.slice(0, 80))
               return {
                 sceneIndex: item.sceneIndex,
                 requestId: item.requestId,
@@ -55,10 +61,11 @@ export async function POST(req: NextRequest) {
           return {
             sceneIndex: item.sceneIndex,
             requestId: item.requestId,
-            status: (statusData.status || 'processing').toLowerCase(),
+            status: (statusData.status || 'in_queue').toLowerCase(),
           }
         } catch (err: any) {
-          return { sceneIndex: item.sceneIndex, requestId: item.requestId, status: 'error', error: err.message }
+          console.error(`[fal.ai] Status exception:`, err.message)
+          return { sceneIndex: item.sceneIndex, requestId: item.requestId, status: 'processing' }
         }
       })
     )
