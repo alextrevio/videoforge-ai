@@ -160,7 +160,7 @@ export function AppProvider({ children, userId }: { children: ReactNode; userId?
         const durStr = video.duration.replace(/[^0-9]/g, '') || '60'
         const sRef = settingsRef.current
 
-        // STEP 1: SCRIPT
+        // STEP 1: SCRIPT (GPT)
         updateVid({ status: 'script' as VideoStatus, progress: 10, renderData: { renderStatus: 'generating script...' } })
         let finalScript = video.script
         if (!finalScript || finalScript.length < 20) {
@@ -172,20 +172,9 @@ export function AppProvider({ children, userId }: { children: ReactNode; userId?
           updateVid({ script: finalScript, progress: 25 })
         }
 
-        // STEP 2: VOICEOVER
-        updateVid({ status: 'voiceover' as VideoStatus, progress: 30, renderData: { renderStatus: 'generating voice...' } })
-        const voRes = await fetch('/api/generate/voiceover', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ script: finalScript, voice: sRef.voice || 'mateo', videoId }) })
-        if (!voRes.ok) throw new Error(`Voiceover API error: ${voRes.status}`)
-        const voData = await voRes.json()
-        if (voData.error) throw new Error(voData.error)
-        updateVid({ progress: 45 })
-
-        // STEP 3: AI VIDEO GENERATION (Kling via fal.ai)
-        updateVid({ status: 'visuals' as VideoStatus, progress: 50, renderData: { renderStatus: 'generating AI video clips...' } })
-        let aiClips: any[] = []
+        // STEP 2: VISUAL PROMPTS (GPT converts script → English cinematic prompts)
+        updateVid({ status: 'visuals' as VideoStatus, progress: 30, renderData: { renderStatus: 'creating visual prompts...' } })
         const sentences = finalScript.replace(/\[.*?\]/g, '').replace(/\(.*?\)/g, '').split(/(?<=[.!?])\s+/).filter((s: string) => s.trim().length > 8).slice(0, 6)
-
-        // Generate visual prompts from script using GPT
         let visualPrompts: string[] = sentences.map((s: string) => s.slice(0, 80))
         try {
           const promptRes = await fetch('/api/generate/scene-prompts', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ scenes: sentences, niche }) })
@@ -194,8 +183,11 @@ export function AppProvider({ children, userId }: { children: ReactNode; userId?
             if (promptData.prompts?.length) visualPrompts = promptData.prompts
           }
         } catch {}
+        updateVid({ progress: 40 })
 
-        // Submit AI video generation
+        // STEP 3: AI VIDEO + AUDIO (Kling via fal.ai — generates video WITH native audio)
+        updateVid({ status: 'editing' as VideoStatus, progress: 45, renderData: { renderStatus: 'generating AI video + audio...' } })
+        let aiClips: any[] = []
         const scenesForVideo = visualPrompts.map((prompt: string) => ({ prompt, duration: 5 }))
         try {
           const aiRes = await fetch('/api/generate/ai-video', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ scenes: scenesForVideo, niche, aspectRatio: '9:16' }) })
@@ -249,25 +241,24 @@ export function AppProvider({ children, userId }: { children: ReactNode; userId?
         }
         updateVid({ progress: 65 })
 
-        // STEP 4: SUBTITLES
-        updateVid({ status: 'editing' as VideoStatus, progress: 70, renderData: { renderStatus: 'generating subtitles...' } })
-        const subRes = await fetch('/api/generate/subtitles', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ script: finalScript, audioUrl: voData.audioUrl || null, duration: durStr }) })
+        // STEP 4: SUBTITLES (from script text)
+        updateVid({ status: 'thumbnail' as VideoStatus, progress: 75, renderData: { renderStatus: 'generating subtitles...' } })
+        const subRes = await fetch('/api/generate/subtitles', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ script: finalScript, audioUrl: null, duration: durStr }) })
         if (!subRes.ok) throw new Error(`Subtitles API error: ${subRes.status}`)
         const subData = await subRes.json()
 
         // DONE — mark as review
         updateVid({
           status: 'review' as VideoStatus, progress: 85,
-          audioUrl: voData.audioUrl, script: finalScript,
+          script: finalScript,
           renderData: {
             renderStatus: 'complete',
             steps: {
               script: { length: finalScript.length },
-              voiceover: { mode: voData.mode, hasAudio: !!voData.audioUrl },
-              aiVideo: { clipCount: aiClips.length, mode: aiClips.length > 0 ? 'kling' : 'pexels-fallback' },
+              aiVideo: { clipCount: aiClips.length, mode: aiClips.length > 0 && aiClips[0].videoUrl ? 'kling' : 'pexels-fallback' },
               subtitles: { mode: subData.mode, count: (subData.subtitles || []).length },
             },
-            composition: { audioUrl: voData.audioUrl, clips: aiClips, subtitles: subData.subtitles }
+            composition: { clips: aiClips, subtitles: subData.subtitles }
           }
         })
       } catch (err: any) {

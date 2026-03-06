@@ -41,6 +41,7 @@ export async function POST(req: NextRequest) {
               aspect_ratio: ratio,
               negative_prompt: 'blur, distort, low quality, watermark, text overlay',
               cfg_scale: 0.5,
+              audio: true,
             }),
           })
 
