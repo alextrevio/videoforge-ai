@@ -209,7 +209,7 @@ export function AppProvider({ children, userId }: { children: ReactNode; userId?
             console.log('[VideoForge] AI Video response:', aiData.mode, 'queued:', aiData.queued, 'failed:', aiData.failed, 'errors:', aiData.errors)
             if ((aiData.mode === 'kling-fal' || aiData.mode === 'all-failed') && aiData.clips?.length) {
               // Poll for completion (max 5 minutes)
-              const pendingIds = aiData.clips.filter((c: any) => c.requestId).map((c: any) => ({ sceneIndex: c.sceneIndex, requestId: c.requestId }))
+              const pendingIds = aiData.clips.filter((c: any) => c.requestId).map((c: any) => ({ sceneIndex: c.sceneIndex, requestId: c.requestId, statusUrl: c.statusUrl, responseUrl: c.responseUrl }))
               if (pendingIds.length > 0) {
                 updateVid({ progress: 55, renderData: { renderStatus: `generating ${pendingIds.length} AI video clips...` } })
                 let attempts = 0
