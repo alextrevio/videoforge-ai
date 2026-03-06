@@ -1,60 +1,51 @@
-// Supabase client — 100% lazy, zero top-level import of @supabase/supabase-js
-const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
-const SUPABASE_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
-
-export const isSupabaseConfigured = () => !!(SUPABASE_URL && SUPABASE_KEY)
-
+// Supabase — fully lazy, env vars read at call time (not module load time)
 let _client: any = null
 
-async function initClient() {
-  if (!_client) {
-    if (!SUPABASE_URL || !SUPABASE_KEY) {
-      throw new Error('Supabase not configured')
-    }
-    const { createClient } = await import('@supabase/supabase-js')
-    _client = createClient(SUPABASE_URL, SUPABASE_KEY)
+export function isSupabaseConfigured(): boolean {
+  // Read env vars INLINE every time — Next.js replaces these at build time
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+  return !!(url && key)
+}
+
+async function getClient() {
+  if (_client) return _client
+  // Read env vars HERE, not at module scope
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+  if (!url || !key) {
+    console.warn('[Supabase] Not configured — using localStorage only')
+    throw new Error('Supabase not configured')
   }
+  console.log('[Supabase] URL:', JSON.stringify(url), 'KEY length:', key?.length)
+  const { createClient } = await import('@supabase/supabase-js')
+  _client = createClient(url.trim(), key.trim())
   return _client
 }
 
-// Async wrapper — all db calls must await
 export const supabase = {
   from: (table: string) => {
-    // Return a promise-based chain
-    const pending = initClient()
+    const p = getClient()
     return {
-      select: (...args: any[]) => chainMethod(pending, table, 'select', args),
-      insert: (...args: any[]) => chainMethod(pending, table, 'insert', args),
-      update: (...args: any[]) => chainMethod(pending, table, 'update', args),
-      delete: () => chainMethod(pending, table, 'delete', []),
+      select: (...a: any[]) => wrap(p.then(c => c.from(table).select(...a))),
+      insert: (...a: any[]) => wrap(p.then(c => c.from(table).insert(...a))),
+      update: (...a: any[]) => wrap(p.then(c => c.from(table).update(...a))),
+      delete: () => wrap(p.then(c => c.from(table).delete())),
     }
   }
 }
 
-function chainMethod(pending: Promise<any>, table: string, method: string, args: any[]) {
-  // Create a thenable chain that resolves the client first
-  const chain: any = {
-    _promise: pending.then(client => {
-      const q = client.from(table)[method](...args)
-      return q
-    }),
-    then: (resolve: any, reject: any) => chain._promise.then(resolve, reject),
-    eq: (col: string, val: any) => {
-      chain._promise = chain._promise.then((q: any) => q.eq(col, val))
-      return chain
-    },
-    order: (col: string, opts?: any) => {
-      chain._promise = chain._promise.then((q: any) => q.order(col, opts))
-      return chain
-    },
-    select: (...sArgs: any[]) => {
-      chain._promise = chain._promise.then((q: any) => q.select(...sArgs))
-      return chain
-    },
-    single: () => {
-      chain._promise = chain._promise.then((q: any) => q.single())
-      return chain
-    },
+// Wrap a promise to support chaining .eq(), .order(), etc.
+function wrap(promise: Promise<any>): any {
+  const obj: any = {
+    _p: promise,
+    then: (ok: any, fail: any) => obj._p.then(ok, fail),
+    catch: (fail: any) => obj._p.catch(fail),
+    eq: (col: string, val: any) => { obj._p = obj._p.then((q: any) => q.eq(col, val)); return obj },
+    order: (col: string, opts?: any) => { obj._p = obj._p.then((q: any) => q.order(col, opts)); return obj },
+    select: (...a: any[]) => { obj._p = obj._p.then((q: any) => q.select(...a)); return obj },
+    single: () => { obj._p = obj._p.then((q: any) => q.single()); return obj },
+    limit: (n: number) => { obj._p = obj._p.then((q: any) => q.limit(n)); return obj },
   }
-  return chain
+  return obj
 }
