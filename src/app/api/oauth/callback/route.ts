@@ -66,12 +66,13 @@ export async function GET(req: NextRequest) {
     }
 
     if (tokens?.access_token && process.env.NEXT_PUBLIC_SUPABASE_URL) {
-      const { supabase } = await import('@/lib/supabase')
+      const { getSupabase } = await import('@/lib/supabase')
+      const client = await getSupabase()
       const expiresAt = tokens.expires_in
         ? new Date(Date.now() + tokens.expires_in * 1000).toISOString()
         : null
 
-      await supabase.from('channels').update({
+      await client.from('channels').update({
         oauth_token: tokens.access_token,
         oauth_refresh: tokens.refresh_token || null,
         oauth_expires_at: expiresAt,

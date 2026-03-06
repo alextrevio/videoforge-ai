@@ -1,15 +1,16 @@
-import { supabase, isSupabaseConfigured } from './supabase'
+import { getSupabase, isSupabaseConfigured } from './supabase'
 import { Channel, VideoItem, Platform, VideoStatus } from './store'
 
-// ── Single-user data layer ──────────────────────────────
 const isDb = () => isSupabaseConfigured()
 const OWNER = 'owner'
-const db = () => supabase
+
+async function db() { return getSupabase() }
 
 // ── Channels ────────────────────────────────────────────
 export async function fetchChannels(): Promise<Channel[]> {
   if (!isDb()) return []
-  const { data } = await db().from('channels')
+  const client = await db()
+  const { data } = await client.from('channels')
     .select('*').eq('user_id', OWNER).order('created_at', { ascending: true })
   if (!data) return []
   return data.map((r: any) => ({
@@ -24,7 +25,8 @@ export async function fetchChannels(): Promise<Channel[]> {
 
 export async function insertChannel(ch: Channel) {
   if (!isDb()) return
-  await db().from('channels').insert({
+  const client = await db()
+  await client.from('channels').insert({
     id: ch.id, user_id: OWNER, name: ch.name, platform: ch.platform,
     niche: ch.niche, icon: ch.icon, color: ch.color, status: ch.status,
     autopilot: ch.autopilot, autopilot_idea: ch.autopilotIdea,
@@ -43,18 +45,23 @@ export async function patchChannel(id: string, d: Partial<Channel>) {
   if (d.autopilotPerDay !== undefined) map.autopilot_per_day = d.autopilotPerDay
   if (d.autopilotDuration !== undefined) map.autopilot_duration = d.autopilotDuration
   if (d.autopilotPlatforms !== undefined) map.autopilot_platforms = d.autopilotPlatforms
-  if (Object.keys(map).length > 0) await db().from('channels').update(map).eq('id', id)
+  if (Object.keys(map).length > 0) {
+    const client = await db()
+    await client.from('channels').update(map).eq('id', id)
+  }
 }
 
 export async function removeChannel(id: string) {
   if (!isDb()) return
-  await db().from('channels').delete().eq('id', id)
+  const client = await db()
+  await client.from('channels').delete().eq('id', id)
 }
 
 // ── Videos ──────────────────────────────────────────────
 export async function fetchVideos(): Promise<VideoItem[]> {
   if (!isDb()) return []
-  const { data } = await db().from('videos')
+  const client = await db()
+  const { data } = await client.from('videos')
     .select('*').eq('user_id', OWNER).order('created_at', { ascending: true })
   if (!data) return []
   return data.map((r: any) => ({
@@ -72,7 +79,8 @@ export async function fetchVideos(): Promise<VideoItem[]> {
 
 export async function insertVideo(v: VideoItem) {
   if (!isDb()) return
-  await db().from('videos').insert({
+  const client = await db()
+  await client.from('videos').insert({
     id: v.id, user_id: OWNER, channel_id: v.channelId,
     title: v.title, description: v.description, tags: v.tags,
     script: v.script, status: v.status, progress: v.progress,
@@ -85,6 +93,7 @@ export async function insertVideo(v: VideoItem) {
 
 export async function insertVideoBatch(vids: VideoItem[]) {
   if (!isDb()) return
+  const client = await db()
   const rows = vids.map((v: any) => ({
     id: v.id, user_id: OWNER, channel_id: v.channelId,
     title: v.title, description: v.description, tags: v.tags,
@@ -94,7 +103,7 @@ export async function insertVideoBatch(vids: VideoItem[]) {
     audio_url: v.audioUrl || null, video_url: v.videoUrl || null,
     thumbnail_url: v.thumbnailUrl || null, render_data: v.renderData || null,
   }))
-  await db().from('videos').insert(rows)
+  await client.from('videos').insert(rows)
 }
 
 export async function patchVideo(id: string, d: Partial<VideoItem>) {
@@ -112,10 +121,14 @@ export async function patchVideo(id: string, d: Partial<VideoItem>) {
   if (d.videoUrl !== undefined) map.video_url = d.videoUrl
   if (d.thumbnailUrl !== undefined) map.thumbnail_url = d.thumbnailUrl
   if (d.renderData !== undefined) map.render_data = d.renderData
-  if (Object.keys(map).length > 0) await db().from('videos').update(map).eq('id', id)
+  if (Object.keys(map).length > 0) {
+    const client = await db()
+    await client.from('videos').update(map).eq('id', id)
+  }
 }
 
 export async function removeVideo(id: string) {
   if (!isDb()) return
-  await db().from('videos').delete().eq('id', id)
+  const client = await db()
+  await client.from('videos').delete().eq('id', id)
 }
