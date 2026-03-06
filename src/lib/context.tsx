@@ -193,7 +193,8 @@ export function AppProvider({ children, userId }: { children: ReactNode; userId?
           const aiRes = await fetch('/api/generate/ai-video', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ scenes: scenesForVideo, niche, aspectRatio: '9:16' }) })
           if (aiRes.ok) {
             const aiData = await aiRes.json()
-            if (aiData.mode === 'kling-fal' && aiData.clips?.length) {
+            console.log('[VideoForge] AI Video response:', aiData.mode, 'queued:', aiData.queued, 'failed:', aiData.failed, 'errors:', aiData.errors)
+            if ((aiData.mode === 'kling-fal' || aiData.mode === 'all-failed') && aiData.clips?.length) {
               // Poll for completion (max 5 minutes)
               const pendingIds = aiData.clips.filter((c: any) => c.requestId).map((c: any) => ({ sceneIndex: c.sceneIndex, requestId: c.requestId }))
               if (pendingIds.length > 0) {

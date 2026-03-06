@@ -2,33 +2,29 @@ import { NextRequest, NextResponse } from 'next/server'
 
 // POST /api/generate/ai-video
 // Generates AI video clips using Kling via fal.ai
-// Each scene gets a 5s AI-generated video clip
 export async function POST(req: NextRequest) {
   try {
-    const { scenes, niche, aspectRatio, duration } = await req.json()
-    // scenes: [{ prompt: "cinematic description...", duration: 5 }]
+    const { scenes, niche, aspectRatio } = await req.json()
 
     const falKey = process.env.FAL_KEY
     if (!falKey) {
-      // Simulation mode — return placeholder data
-      const results = (scenes || []).map((s: any, i: number) => ({
-        sceneIndex: i,
-        videoUrl: null,
-        status: 'simulated',
-        prompt: s.prompt,
-        message: 'FAL_KEY not configured. Set FAL_KEY in Vercel to enable AI video generation.',
-      }))
-      return NextResponse.json({ clips: results, mode: 'simulation' })
+      return NextResponse.json({
+        clips: (scenes || []).map((s: any, i: number) => ({
+          sceneIndex: i, videoUrl: null, status: 'simulated', prompt: s.prompt,
+        })),
+        mode: 'simulation',
+      })
     }
 
-    const model = 'fal-ai/kling-video/v2.5-turbo/standard/text-to-video'
-    const ratio = aspectRatio || '9:16' // vertical for shorts/reels
+    // Use Kling v1 standard — most reliable, cheapest
+    const model = 'fal-ai/kling-video/v1/standard/text-to-video'
+    const ratio = aspectRatio || '9:16'
 
-    // Submit all scenes in parallel
+    // Submit scenes (max 4 to control cost)
+    const limitedScenes = (scenes || []).slice(0, 4)
     const submissions = await Promise.all(
-      (scenes || []).slice(0, 6).map(async (scene: any, i: number) => {
+      limitedScenes.map(async (scene: any, i: number) => {
         try {
-          // Submit to fal queue
           const submitRes = await fetch(`https://queue.fal.run/${model}`, {
             method: 'POST',
             headers: {
@@ -37,20 +33,19 @@ export async function POST(req: NextRequest) {
             },
             body: JSON.stringify({
               prompt: scene.prompt,
-              duration: String(scene.duration || 5),
+              duration: '5',
               aspect_ratio: ratio,
-              negative_prompt: 'blur, distort, low quality, watermark, text overlay',
-              cfg_scale: 0.5,
-              audio: true,
             }),
           })
 
           if (!submitRes.ok) {
-            const err = await submitRes.text()
-            return { sceneIndex: i, error: `Submit failed: ${err}`, status: 'failed' }
+            const errText = await submitRes.text()
+            console.error(`[fal.ai] Scene ${i} submit error:`, submitRes.status, errText)
+            return { sceneIndex: i, error: `fal.ai ${submitRes.status}: ${errText.slice(0, 200)}`, status: 'failed' }
           }
 
           const submitData = await submitRes.json()
+          console.log(`[fal.ai] Scene ${i} queued:`, submitData.request_id)
           return {
             sceneIndex: i,
             requestId: submitData.request_id,
@@ -58,18 +53,25 @@ export async function POST(req: NextRequest) {
             prompt: scene.prompt,
           }
         } catch (err: any) {
+          console.error(`[fal.ai] Scene ${i} exception:`, err.message)
           return { sceneIndex: i, error: err.message, status: 'failed' }
         }
       })
     )
 
+    const queued = submissions.filter(s => s.status === 'queued')
+    const failed = submissions.filter(s => s.status === 'failed')
+
     return NextResponse.json({
       clips: submissions,
-      mode: 'kling-fal',
+      mode: queued.length > 0 ? 'kling-fal' : 'all-failed',
       model,
-      message: 'Videos submitted to queue. Poll /api/generate/ai-video/status to check progress.',
+      queued: queued.length,
+      failed: failed.length,
+      errors: failed.map(f => f.error),
     })
   } catch (error: any) {
+    console.error('[fal.ai] Route error:', error.message)
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 }
