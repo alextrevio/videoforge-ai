@@ -732,10 +732,15 @@ export default function VideoForgeApp({ user, onLogout }: VFProps) {
 
               {/* Tab: Preview */}
               {detailTab==='preview'&&<>
-                {v.renderData?.renderStatus==='complete' ? (
+                {(v.renderData?.renderStatus==='complete' || v.renderData?.renderStatus==='complete-mp4') ? (
                   <div>
-                    {/* AI Video clips preview */}
-                    {(v.renderData.composition?.clips||[]).some((c:any)=>c.videoUrl) ? (
+                    {/* Final MP4 video player */}
+                    {(v.videoUrl || v.renderData.composition?.finalVideoUrl) ? (
+                      <div style={{marginBottom:12}}>
+                        <video src={v.videoUrl || v.renderData.composition.finalVideoUrl} style={{width:'100%',borderRadius:12,aspectRatio:'9/16',maxHeight:400,objectFit:'contain',background:'#000',margin:'0 auto',display:'block'}} controls playsInline/>
+                        <a href={v.videoUrl || v.renderData.composition.finalVideoUrl} download={`${v.title.replace(/\s+/g,'-')}.mp4`} target="_blank" rel="noopener" style={{display:'block',textAlign:'center',marginTop:8,padding:'10px 20px',borderRadius:8,background:'linear-gradient(135deg,#F97316,#EA580C)',color:'#fff',fontWeight:700,fontSize:13,textDecoration:'none',fontFamily:'inherit'}}>⬇️ Descargar MP4</a>
+                      </div>
+                    ) : (v.renderData.composition?.clips||[]).some((c:any)=>c.videoUrl) ? (
                       <div style={{display:'grid',gridTemplateColumns:'repeat(2,1fr)',gap:6,marginBottom:12}}>
                         {(v.renderData.composition.clips||[]).filter((c:any)=>c.videoUrl).slice(0,4).map((clip:any,i:number)=>(
                           <video key={i} src={clip.videoUrl} style={{width:'100%',borderRadius:8,aspectRatio:'9/16',objectFit:'cover',background:'#000'}} controls muted playsInline/>
@@ -744,24 +749,17 @@ export default function VideoForgeApp({ user, onLogout }: VFProps) {
                     ) : (
                       <div style={{background:'#000',borderRadius:14,overflow:'hidden',aspectRatio:'9/16',maxHeight:380,position:'relative',display:'flex',alignItems:'center',justifyContent:'center',margin:'0 auto',maxWidth:214,border:'2px solid #222'}}>
                         <div style={{position:'absolute',inset:0,background:'linear-gradient(165deg,#0a0a12,#12122a)'}}/>
-                        <div style={{position:'absolute',inset:0,background:'radial-gradient(ellipse at 50% 50%, transparent 30%, rgba(0,0,0,0.6) 100%)'}}/>
-                        {(v.renderData.composition?.subtitles||[]).length>0&&<div style={{position:'absolute',bottom:28,left:6,right:6,textAlign:'center',display:'flex',flexWrap:'wrap',justifyContent:'center',gap:'2px 4px'}}>
-                          {(v.renderData.composition.subtitles||[]).slice(0,8).map((w:any,i:number)=><span key={i} style={{fontSize:i===3?10:8,fontWeight:900,color:i===3?'#fff':'rgba(255,255,255,0.35)',background:i===3?'#F97316':'transparent',padding:i===3?'1px 5px':'1px 1px',borderRadius:3,textTransform:'uppercase'}}>{w.word}</span>)}
-                        </div>}
                         <div style={{width:36,height:36,borderRadius:18,background:'rgba(255,255,255,0.12)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:1,border:'2px solid rgba(255,255,255,0.2)'}}>{I.Play(14)}</div>
                       </div>
                     )}
-
-                    {/* Audio player */}
-                    {v.audioUrl&&<div style={{marginTop:10}}><audio src={v.audioUrl} controls style={{width:'100%',height:32,borderRadius:8}}/></div>}
 
                     {/* Pipeline steps */}
                     <div style={{marginTop:14,background:'var(--bg2)',borderRadius:10,padding:10}}>
                       {[
                         {icon:'📝',label:'Guión',detail:`${v.renderData.steps?.script?.length||0} chars`},
-                        {icon:'🎙️',label:'Narración',detail:v.renderData.steps?.voiceover?.mode||'—'},
                         {icon:'🎬',label:'Video IA',detail:`${v.renderData.steps?.aiVideo?.clipCount||0} clips · ${v.renderData.steps?.aiVideo?.mode||'—'}`},
                         {icon:'💬',label:'Subtítulos',detail:`${v.renderData.steps?.subtitles?.count||0} palabras`},
+                        {icon:'🎞️',label:'MP4 Final',detail:v.renderData.steps?.concat?.mode==='shotstack'?'✅ Renderizado':'📋 Clips individuales'},
                       ].map((s,i)=>
                         <div key={i} style={{display:'flex',alignItems:'center',gap:8,padding:'4px 0',borderBottom:i<3?'1px solid rgba(30,30,42,0.5)':'none',fontSize:11}}>
                           <span>{s.icon}</span>

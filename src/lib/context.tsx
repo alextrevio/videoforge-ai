@@ -247,18 +247,59 @@ export function AppProvider({ children, userId }: { children: ReactNode; userId?
         if (!subRes.ok) throw new Error(`Subtitles API error: ${subRes.status}`)
         const subData = await subRes.json()
 
-        // DONE — mark as review
+        // STEP 5: CONCATENATE INTO FINAL MP4 (Shotstack)
+        let finalVideoUrl: string | null = null
+        const videoClips = aiClips.filter((c: any) => c.videoUrl)
+        if (videoClips.length > 0) {
+          updateVid({ status: 'review' as VideoStatus, progress: 80, renderData: { renderStatus: 'rendering final MP4...' } })
+          try {
+            const concatRes = await fetch('/api/generate/concat', {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ clips: videoClips.map((c: any) => ({ videoUrl: c.videoUrl, duration: 5 })), title: video.title })
+            })
+            if (concatRes.ok) {
+              const concatData = await concatRes.json()
+              if (concatData.renderId && concatData.mode === 'shotstack') {
+                // Poll for completion (max 3 min)
+                let concatAttempts = 0
+                while (concatAttempts < 36) { // 36 * 5s = 3 min
+                  await new Promise(r => setTimeout(r, 5000))
+                  concatAttempts++
+                  try {
+                    const pollRes = await fetch('/api/generate/concat/status', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ renderId: concatData.renderId }) })
+                    if (pollRes.ok) {
+                      const pollData = await pollRes.json()
+                      updateVid({ progress: 80 + Math.min(concatAttempts, 10), renderData: { renderStatus: `rendering MP4: ${pollData.status}...` } })
+                      if (pollData.status === 'done' && pollData.videoUrl) {
+                        finalVideoUrl = pollData.videoUrl
+                        break
+                      }
+                      if (pollData.status === 'failed') break
+                    }
+                  } catch {}
+                }
+              } else if (concatData.videoUrl) {
+                // No Shotstack — use first clip as preview
+                finalVideoUrl = concatData.videoUrl
+              }
+            }
+          } catch {}
+        }
+
+        // DONE — mark as review with final video
         updateVid({
-          status: 'review' as VideoStatus, progress: 85,
+          status: 'review' as VideoStatus, progress: finalVideoUrl ? 95 : 85,
+          videoUrl: finalVideoUrl || undefined,
           script: finalScript,
           renderData: {
-            renderStatus: 'complete',
+            renderStatus: finalVideoUrl ? 'complete-mp4' : 'complete',
             steps: {
               script: { length: finalScript.length },
-              aiVideo: { clipCount: aiClips.length, mode: aiClips.length > 0 && aiClips[0].videoUrl ? 'kling' : 'pexels-fallback' },
+              aiVideo: { clipCount: aiClips.length, mode: videoClips.length > 0 ? 'kling' : 'pexels-fallback' },
               subtitles: { mode: subData.mode, count: (subData.subtitles || []).length },
+              concat: { mode: finalVideoUrl ? 'shotstack' : 'clips-only', videoUrl: finalVideoUrl },
             },
-            composition: { clips: aiClips, subtitles: subData.subtitles }
+            composition: { clips: aiClips, subtitles: subData.subtitles, finalVideoUrl }
           }
         })
       } catch (err: any) {
