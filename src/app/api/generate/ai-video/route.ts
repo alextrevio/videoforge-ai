@@ -1,64 +1,77 @@
 import { NextRequest, NextResponse } from 'next/server'
 
 // POST /api/generate/ai-video
+// Generates a SINGLE AI video clip using Kling via fal.ai
+// Called once per scene — the browser handles sequencing
 export async function POST(req: NextRequest) {
   try {
-    const { scenes, niche, aspectRatio } = await req.json()
+    const { prompt, aspectRatio } = await req.json()
 
     const falKey = process.env.FAL_KEY
     if (!falKey) {
-      return NextResponse.json({
-        clips: (scenes || []).map((s: any, i: number) => ({ sceneIndex: i, videoUrl: null, status: 'simulated' })),
-        mode: 'simulation',
-      })
+      return NextResponse.json({ videoUrl: null, mode: 'simulation' })
     }
 
     const model = 'fal-ai/kling-video/v1/standard/text-to-video'
-    const ratio = aspectRatio || '9:16'
-    const limitedScenes = (scenes || []).slice(0, 4)
 
-    const submissions = await Promise.all(
-      limitedScenes.map(async (scene: any, i: number) => {
-        try {
-          const submitRes = await fetch(`https://queue.fal.run/${model}`, {
-            method: 'POST',
-            headers: { 'Authorization': `Key ${falKey}`, 'Content-Type': 'application/json' },
-            body: JSON.stringify({ prompt: scene.prompt, duration: '5', aspect_ratio: ratio }),
-          })
-
-          if (!submitRes.ok) {
-            const errText = await submitRes.text()
-            console.error(`[fal.ai] Scene ${i} submit error:`, submitRes.status, errText.slice(0, 200))
-            return { sceneIndex: i, error: errText.slice(0, 200), status: 'failed' }
-          }
-
-          const data = await submitRes.json()
-          console.log(`[fal.ai] Scene ${i} queued:`, data.request_id)
-          // Save the status_url and response_url from the response
-          return {
-            sceneIndex: i,
-            requestId: data.request_id,
-            statusUrl: data.status_url,
-            responseUrl: data.response_url,
-            status: 'queued',
-            prompt: scene.prompt,
-          }
-        } catch (err: any) {
-          console.error(`[fal.ai] Scene ${i} exception:`, err.message)
-          return { sceneIndex: i, error: err.message, status: 'failed' }
-        }
-      })
-    )
-
-    const queued = submissions.filter(s => s.status === 'queued')
-    return NextResponse.json({
-      clips: submissions,
-      mode: queued.length > 0 ? 'kling-fal' : 'all-failed',
-      queued: queued.length,
-      failed: submissions.length - queued.length,
-      errors: submissions.filter(s => s.status === 'failed').map(f => f.error),
+    // Submit to queue
+    const submitRes = await fetch(`https://queue.fal.run/${model}`, {
+      method: 'POST',
+      headers: { 'Authorization': `Key ${falKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt, duration: '5', aspect_ratio: aspectRatio || '9:16' }),
     })
+
+    if (!submitRes.ok) {
+      const err = await submitRes.text()
+      console.error('[fal.ai] Submit error:', submitRes.status, err.slice(0, 200))
+      return NextResponse.json({ videoUrl: null, error: err.slice(0, 200), mode: 'error' })
+    }
+
+    const submitData = await submitRes.json()
+    const statusUrl = submitData.status_url
+    const responseUrl = submitData.response_url
+    console.log('[fal.ai] Queued:', submitData.request_id)
+
+    // Poll until complete (max 3 min within this serverless function)
+    // Vercel Hobby has 60s timeout, so we poll for max 55s
+    const startTime = Date.now()
+    const maxWait = 55000 // 55 seconds
+
+    while (Date.now() - startTime < maxWait) {
+      await new Promise(r => setTimeout(r, 3000)) // wait 3s between polls
+
+      try {
+        const statusRes = await fetch(statusUrl, {
+          headers: { 'Authorization': `Key ${falKey}` },
+        })
+        if (!statusRes.ok) continue
+
+        const statusData = await statusRes.json()
+        console.log('[fal.ai] Status:', statusData.status)
+
+        if (statusData.status === 'COMPLETED') {
+          // Fetch result
+          const resultRes = await fetch(responseUrl, {
+            headers: { 'Authorization': `Key ${falKey}` },
+          })
+          if (resultRes.ok) {
+            const result = await resultRes.json()
+            const videoUrl = result.video?.url || null
+            console.log('[fal.ai] Video URL:', videoUrl?.slice(0, 80))
+            return NextResponse.json({ videoUrl, mode: 'kling' })
+          }
+        }
+
+        if (statusData.status === 'FAILED') {
+          return NextResponse.json({ videoUrl: null, error: 'Kling generation failed', mode: 'error' })
+        }
+      } catch {}
+    }
+
+    // Timeout — return what we have
+    return NextResponse.json({ videoUrl: null, mode: 'timeout', requestId: submitData.request_id })
   } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 })
+    console.error('[fal.ai] Error:', error.message)
+    return NextResponse.json({ videoUrl: null, error: error.message, mode: 'error' })
   }
 }

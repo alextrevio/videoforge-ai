@@ -198,52 +198,34 @@ export function AppProvider({ children, userId }: { children: ReactNode; userId?
         } catch {}
         updateVid({ progress: 40 })
 
-        // STEP 3: AI VIDEO (Kling generates each scene as a clip)
+        // STEP 3: AI VIDEO (one call per scene — each waits up to 55s)
         updateVid({ status: 'editing' as VideoStatus, progress: 45, renderData: { renderStatus: 'generating AI video clips...' } })
         let aiClips: any[] = []
-        const scenesForVideo = visualPrompts.map((prompt: string) => ({ prompt, duration: 5 }))
-        try {
-          const aiRes = await fetch('/api/generate/ai-video', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ scenes: scenesForVideo, niche, aspectRatio: '9:16' }) })
-          if (aiRes.ok) {
-            const aiData = await aiRes.json()
-            console.log('[VideoForge] AI Video response:', aiData.mode, 'queued:', aiData.queued, 'failed:', aiData.failed, 'errors:', aiData.errors)
-            if ((aiData.mode === 'kling-fal' || aiData.mode === 'all-failed') && aiData.clips?.length) {
-              // Poll for completion (max 5 minutes)
-              const pendingIds = aiData.clips.filter((c: any) => c.requestId).map((c: any) => ({ sceneIndex: c.sceneIndex, requestId: c.requestId, statusUrl: c.statusUrl, responseUrl: c.responseUrl }))
-              if (pendingIds.length > 0) {
-                updateVid({ progress: 55, renderData: { renderStatus: `generating ${pendingIds.length} AI video clips...` } })
-                let attempts = 0
-                while (attempts < 60) { // 60 * 5s = 5 min max
-                  await new Promise(r => setTimeout(r, 5000))
-                  attempts++
-                  try {
-                    const pollRes = await fetch('/api/generate/ai-video/status', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ requestIds: pendingIds }) })
-                    if (pollRes.ok) {
-                      const pollData = await pollRes.json()
-                      const completed = pollData.clips?.filter((c: any) => c.status === 'completed') || []
-                      updateVid({ progress: 55 + Math.round((completed.length / pendingIds.length) * 10), renderData: { renderStatus: `AI video: ${completed.length}/${pendingIds.length} clips ready` } })
-                      if (pollData.allComplete) {
-                        aiClips = pollData.clips.filter((c: any) => c.videoUrl)
-                        break
-                      }
-                    }
-                  } catch {}
-                }
+        const totalScenes = Math.min(visualPrompts.length, 4)
+
+        for (let i = 0; i < totalScenes; i++) {
+          updateVid({ progress: 45 + Math.round((i / totalScenes) * 20), renderData: { renderStatus: `generating clip ${i + 1}/${totalScenes}...` } })
+          try {
+            const clipRes = await fetch('/api/generate/ai-video', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ prompt: visualPrompts[i], aspectRatio: '9:16' }),
+            })
+            if (clipRes.ok) {
+              const clipData = await clipRes.json()
+              console.log(`[VideoForge] Clip ${i + 1}:`, clipData.mode, clipData.videoUrl?.slice(0, 60) || 'no url')
+              if (clipData.videoUrl) {
+                aiClips.push({ sceneIndex: i, videoUrl: clipData.videoUrl, duration: 5 })
               }
             }
-            // Fallback: use Pexels images if no AI clips (any reason: no FAL_KEY, errors, timeout)
-            if (aiClips.length === 0) {
-              const scenes2 = scriptScenes.map((text: string, i: number) => ({ text: text.slice(0, 30), startSec: i * 5, endSec: (i + 1) * 5 }))
-              const mediaRes = await fetch('/api/generate/media', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ scenes: scenes2, niche }) })
-              if (mediaRes.ok) {
-                const mediaData2 = await mediaRes.json()
-                aiClips = (mediaData2.media || []).map((m: any) => ({ ...m, videoUrl: null, imageUrl: m.imageUrl }))
-              }
-            }
+          } catch (err: any) {
+            console.error(`[VideoForge] Clip ${i + 1} error:`, err.message)
           }
-        } catch {}
-        // Final fallback: if AI video failed completely and no clips at all
+        }
+
+        // Fallback to Pexels if no AI clips generated
         if (aiClips.length === 0) {
+          console.log('[VideoForge] No AI clips — falling back to Pexels')
           try {
             const scenes2 = scriptScenes.map((text: string, i: number) => ({ text: text.slice(0, 30), startSec: i * 5, endSec: (i + 1) * 5 }))
             const mediaRes = await fetch('/api/generate/media', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ scenes: scenes2, niche }) })
