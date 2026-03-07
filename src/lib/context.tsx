@@ -198,29 +198,73 @@ export function AppProvider({ children, userId }: { children: ReactNode; userId?
         } catch {}
         updateVid({ progress: 40 })
 
-        // STEP 3: AI VIDEO (one call per scene — each waits up to 55s)
-        updateVid({ status: 'editing' as VideoStatus, progress: 45, renderData: { renderStatus: 'generating AI video clips...' } })
+        // STEP 3: AI VIDEO — submit all scenes, then poll from browser
+        updateVid({ status: 'editing' as VideoStatus, progress: 45, renderData: { renderStatus: 'submitting video generation...' } })
         let aiClips: any[] = []
         const totalScenes = Math.min(visualPrompts.length, 4)
 
+        // Submit all scenes in parallel (each call is fast ~2s)
+        const submissions: any[] = []
         for (let i = 0; i < totalScenes; i++) {
-          updateVid({ progress: 45 + Math.round((i / totalScenes) * 20), renderData: { renderStatus: `generating clip ${i + 1}/${totalScenes}...` } })
           try {
-            const clipRes = await fetch('/api/generate/ai-video', {
+            const subRes = await fetch('/api/generate/ai-video', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ prompt: visualPrompts[i], aspectRatio: '9:16' }),
             })
-            if (clipRes.ok) {
-              const clipData = await clipRes.json()
-              console.log(`[VideoForge] Clip ${i + 1}:`, clipData.mode, clipData.videoUrl?.slice(0, 60) || 'no url')
-              if (clipData.videoUrl) {
-                aiClips.push({ sceneIndex: i, videoUrl: clipData.videoUrl, duration: 5 })
+            if (subRes.ok) {
+              const subData = await subRes.json()
+              console.log(`[VideoForge] Scene ${i + 1} submitted:`, subData.mode, subData.requestId?.slice(0, 20))
+              if (subData.mode === 'queued') {
+                submissions.push({ sceneIndex: i, ...subData })
               }
             }
           } catch (err: any) {
-            console.error(`[VideoForge] Clip ${i + 1} error:`, err.message)
+            console.error(`[VideoForge] Scene ${i + 1} submit error:`, err.message)
           }
+        }
+
+        // Poll all submissions until complete (max 5 min)
+        if (submissions.length > 0) {
+          updateVid({ progress: 50, renderData: { renderStatus: `waiting for ${submissions.length} AI clips...` } })
+          const pending = new Map(submissions.map(s => [s.sceneIndex, s]))
+          const completed: any[] = []
+          let pollAttempts = 0
+          const maxPollAttempts = 60 // 60 * 5s = 5 min
+
+          while (pending.size > 0 && pollAttempts < maxPollAttempts) {
+            await new Promise(r => setTimeout(r, 5000))
+            pollAttempts++
+
+            for (const [idx, sub] of Array.from(pending.entries())) {
+              try {
+                const pollRes = await fetch('/api/generate/ai-video/status', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ statusUrl: sub.statusUrl, responseUrl: sub.responseUrl }),
+                })
+                if (pollRes.ok) {
+                  const pollData = await pollRes.json()
+                  if (pollData.status === 'completed' && pollData.videoUrl) {
+                    console.log(`[VideoForge] Clip ${idx + 1} READY:`, pollData.videoUrl.slice(0, 60))
+                    completed.push({ sceneIndex: idx, videoUrl: pollData.videoUrl, duration: 5 })
+                    pending.delete(idx)
+                  } else if (pollData.status === 'failed') {
+                    console.error(`[VideoForge] Clip ${idx + 1} FAILED`)
+                    pending.delete(idx)
+                  }
+                }
+              } catch {}
+            }
+
+            updateVid({
+              progress: 50 + Math.round((completed.length / totalScenes) * 15),
+              renderData: { renderStatus: `AI video: ${completed.length}/${totalScenes} clips ready (${pending.size} pending)` }
+            })
+          }
+
+          aiClips = completed
+          console.log(`[VideoForge] AI Video done: ${aiClips.length}/${totalScenes} clips generated`)
         }
 
         // Fallback to Pexels if no AI clips generated

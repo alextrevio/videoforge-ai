@@ -1,71 +1,47 @@
 import { NextRequest, NextResponse } from 'next/server'
 
 // POST /api/generate/ai-video/status
-// Uses the status_url and response_url from submit response
+// Checks status of ONE fal.ai request using the URLs from submit
 export async function POST(req: NextRequest) {
   try {
-    const { requestIds } = await req.json()
-    // requestIds: [{ sceneIndex, requestId, statusUrl, responseUrl }]
+    const { statusUrl, responseUrl } = await req.json()
 
     const falKey = process.env.FAL_KEY
-    if (!falKey) {
-      return NextResponse.json({ error: 'FAL_KEY not configured' }, { status: 400 })
+    if (!falKey || !statusUrl) {
+      return NextResponse.json({ status: 'error', error: 'Missing FAL_KEY or statusUrl' })
     }
 
-    const results = await Promise.all(
-      (requestIds || []).map(async (item: any) => {
-        try {
-          // Use the status_url directly from submit response
-          const statusUrl = item.statusUrl
-          if (!statusUrl) {
-            return { sceneIndex: item.sceneIndex, requestId: item.requestId, status: 'error', error: 'No status URL' }
-          }
+    const statusRes = await fetch(statusUrl, {
+      headers: { 'Authorization': `Key ${falKey}` },
+    })
 
-          const statusRes = await fetch(statusUrl, {
-            method: 'GET',
-            headers: { 'Authorization': `Key ${falKey}` },
-          })
+    if (!statusRes.ok) {
+      const err = await statusRes.text()
+      console.error('[fal.ai] Status check error:', statusRes.status, err.slice(0, 200))
+      return NextResponse.json({ status: 'processing' })
+    }
 
-          if (!statusRes.ok) {
-            const errText = await statusRes.text()
-            console.error(`[fal.ai] Status error ${item.sceneIndex}:`, statusRes.status, errText.slice(0, 100))
-            return { sceneIndex: item.sceneIndex, requestId: item.requestId, status: 'processing' }
-          }
+    const statusData = await statusRes.json()
 
-          const statusData = await statusRes.json()
-          console.log(`[fal.ai] Scene ${item.sceneIndex} status:`, statusData.status)
-
-          if (statusData.status === 'COMPLETED') {
-            // Fetch result using response_url
-            const responseUrl = item.responseUrl
-            if (responseUrl) {
-              const resultRes = await fetch(responseUrl, {
-                method: 'GET',
-                headers: { 'Authorization': `Key ${falKey}` },
-              })
-              if (resultRes.ok) {
-                const resultData = await resultRes.json()
-                const videoUrl = resultData.video?.url || null
-                console.log(`[fal.ai] Scene ${item.sceneIndex} completed:`, videoUrl?.slice(0, 80))
-                return { sceneIndex: item.sceneIndex, requestId: item.requestId, status: 'completed', videoUrl }
-              }
-            }
-          }
-
-          if (statusData.status === 'FAILED') {
-            return { sceneIndex: item.sceneIndex, requestId: item.requestId, status: 'error', error: 'Generation failed' }
-          }
-
-          return { sceneIndex: item.sceneIndex, requestId: item.requestId, status: (statusData.status || 'in_queue').toLowerCase() }
-        } catch (err: any) {
-          return { sceneIndex: item.sceneIndex, requestId: item.requestId, status: 'processing' }
-        }
+    if (statusData.status === 'COMPLETED' && responseUrl) {
+      const resultRes = await fetch(responseUrl, {
+        headers: { 'Authorization': `Key ${falKey}` },
       })
-    )
+      if (resultRes.ok) {
+        const result = await resultRes.json()
+        const videoUrl = result.video?.url || null
+        console.log('[fal.ai] COMPLETED! Video:', videoUrl?.slice(0, 100))
+        return NextResponse.json({ status: 'completed', videoUrl })
+      }
+    }
 
-    const allComplete = results.every((r: any) => r.status === 'completed' || r.status === 'error')
-    return NextResponse.json({ clips: results, allComplete })
+    if (statusData.status === 'FAILED') {
+      console.error('[fal.ai] Generation FAILED')
+      return NextResponse.json({ status: 'failed' })
+    }
+
+    return NextResponse.json({ status: (statusData.status || 'processing').toLowerCase() })
   } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 })
+    return NextResponse.json({ status: 'processing' })
   }
 }
