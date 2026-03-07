@@ -23,26 +23,30 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'No valid video clips to concatenate' }, { status: 400 })
     }
 
-    // Build Shotstack timeline — each clip plays sequentially
+    // Build Shotstack timeline — clips play sequentially with smooth transitions
     let currentStart = 0
-    const trackClips = validClips.map((clip: any) => {
+    const transitionDuration = 0.5 // half-second crossfade between scenes
+    const trackClips = validClips.map((clip: any, i: number) => {
       const dur = clip.duration || 5
+      const isFirst = i === 0
+      const isLast = i === validClips.length - 1
       const entry = {
         asset: {
           type: 'video',
           src: clip.videoUrl,
           volume: 1,
         },
-        start: currentStart,
+        start: Math.max(0, currentStart - (isFirst ? 0 : transitionDuration)),
         length: dur,
         transition: {
-          in: currentStart === 0 ? 'fade' : 'fadeSlow',
-          out: 'fadeSlow',
+          in: isFirst ? 'fade' : 'carouselLeft',
+          out: isLast ? 'fade' : 'carouselLeft',
         },
       }
       currentStart += dur
       return entry
     })
+    const totalDuration = currentStart
 
     // Optional: add title card at the beginning
     const titleTrack = title ? [{
@@ -99,7 +103,7 @@ export async function POST(req: NextRequest) {
       status: 'queued',
       mode: 'shotstack',
       clipCount: validClips.length,
-      totalDuration: currentStart,
+      totalDuration,
     })
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 })

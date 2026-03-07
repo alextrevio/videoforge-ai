@@ -10,8 +10,8 @@ export async function POST(req: NextRequest) {
     }
 
     const durSec = parseInt(duration) || 60
-    const sceneDur = parseInt(nicheStyle?.sceneDuration) || 10
-    const numScenes = Math.min(Math.ceil(durSec / sceneDur), 6)
+    const sceneDur = parseInt(nicheStyle?.sceneDuration) || 5
+    const numScenes = Math.min(Math.max(Math.ceil(durSec / sceneDur), 3), 8)
     const tone = nicheStyle?.scriptTone || 'Engaging storyteller'
     const narrationStyle = nicheStyle?.narration || 'An engaging narrator'
     const musicMood = nicheStyle?.musicMood || 'cinematic ambient'
@@ -30,31 +30,36 @@ export async function POST(req: NextRequest) {
 
 RULES:
 - Write in Spanish (${lang || 'es-MX'})
-- Video duration: ${durSec} seconds total, ${numScenes} scenes of ~${sceneDur}s each
+- Video duration: ${durSec} seconds total
+- You MUST create EXACTLY ${numScenes} scenes, each ~${sceneDur} seconds
 - Niche: ${niche}
 - Narration style: ${narrationStyle}
 - Music mood: ${musicMood}
-- Each scene MUST include:
+
+SCENE STRUCTURE — EACH SCENE MUST INCLUDE:
   • NARRATION: ${narrationStyle}
-  • DIALOGUE: Characters speaking (if applicable for this niche)
+  • DIALOGUE: Characters speaking (if fits the niche)
   • EMOTION: What the audience should FEEL
-  • VISUAL: Detailed description of what we SEE
-  • SOUND: Background sounds/music [${musicMood}]
-- Story structure:
-  • Scene 1: HOOK — grab attention in first 3 seconds
-  • Middle: DEVELOPMENT — build tension, curiosity, or emotion
-  • Last scene: PAYOFF — satisfying conclusion, twist, or call to action
-- Make it VIRAL — surprising, emotional, or mind-blowing
+  • VISUAL: Detailed description of what we SEE (this becomes the AI video prompt)
+  • SOUND: Background sounds/music cues
+
+NARRATIVE FLOW (${numScenes} scenes):
+  • Scene 1: HOOK — grab attention instantly, introduce world/character
+  • Scenes 2-${Math.max(numScenes-2, 2)}: DEVELOPMENT — each scene advances the story, builds tension or curiosity
+  • Scene ${numScenes-1}: CLIMAX — peak moment, biggest reveal or emotion
+  • Scene ${numScenes}: RESOLUTION — satisfying ending, call to action
+
+CRITICAL: Each scene must CONNECT to the next. The viewer must feel a continuous story, not random clips. Use transitions like "but then...", "meanwhile...", "what happened next changed everything..."
 
 Respond with JSON:
 {
   "script": "Full script with narration and dialogue",
   "scenes": [
     {
-      "narration": "Narrator text for this scene",
+      "narration": "Narrator text",
       "dialogue": "Character dialogue (if any)",
       "emotion": "target emotion",
-      "visual": "What we see in detail",
+      "visual": "Detailed visual description for AI video generation",
       "sound": "Background sounds/music"
     }
   ],

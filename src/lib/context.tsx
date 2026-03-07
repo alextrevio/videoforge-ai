@@ -208,7 +208,7 @@ export function AppProvider({ children, userId }: { children: ReactNode; userId?
         // STEP 3: VIDEO — AI generation or stock footage based on niche
         updateVid({ status: 'editing' as VideoStatus, progress: 45, renderData: { renderStatus: 'generating video scenes...' } })
         let aiClips: any[] = []
-        const totalScenes = Math.min(visualPrompts.length, 6)
+        const totalScenes = Math.min(visualPrompts.length, 8)
         const clipDuration = nicheStyle.sceneDuration || '5'
 
         if (nicheStyle.useStock) {

@@ -1,22 +1,22 @@
 // Each niche has its own visual style, video approach, and prompt strategy
 export const NICHE_STYLES: Record<string, {
   label: string
-  videoStyle: string       // Core visual style for AI video prompts
-  promptPrefix: string     // Prepended to every scene prompt
-  narration: string        // How the script should be narrated
-  sceneDuration: string    // '5' or '10' seconds per clip
-  useStock: boolean        // Prefer stock footage (Pexels) over AI generation
-  colorPalette: string     // Color guidance for prompts
-  cameraStyle: string      // Camera movement style
-  musicMood: string        // Background music direction
-  scriptTone: string       // How GPT should write the script
+  videoStyle: string
+  promptPrefix: string
+  narration: string
+  sceneDuration: string    // seconds per clip ('5' or '10')
+  useStock: boolean
+  colorPalette: string
+  cameraStyle: string
+  musicMood: string
+  scriptTone: string
 }> = {
   infantil: {
     label: 'Infantil',
     videoStyle: '3D Pixar Disney animation',
     promptPrefix: '3D Pixar Disney animation style, cute expressive characters with big eyes, warm saturated colors, volumetric lighting',
     narration: 'A warm, friendly narrator telling a story to children, with character dialogue',
-    sceneDuration: '10',
+    sceneDuration: '5',
     useStock: false,
     colorPalette: 'bright warm colors, pastel accents, golden hour lighting',
     cameraStyle: 'slow dolly, gentle tracking, crane shots',
@@ -28,12 +28,12 @@ export const NICHE_STYLES: Record<string, {
     videoStyle: 'cinematic historical documentary',
     promptPrefix: 'Cinematic historical scene, photorealistic, dramatic lighting, epic scale, 4K film quality',
     narration: 'A dramatic documentary narrator, authoritative and engaging',
-    sceneDuration: '10',
+    sceneDuration: '5',
     useStock: false,
     colorPalette: 'desaturated earth tones, dramatic shadows, golden light',
     cameraStyle: 'slow aerial, dramatic push-in, wide establishing shots',
     musicMood: 'epic orchestral, drums, tension',
-    scriptTone: 'Documentary narrator — fascinating facts, dramatic reveals, "you won\'t believe" moments',
+    scriptTone: 'Documentary narrator — fascinating facts, dramatic reveals, surprising moments',
   },
   curiosidades: {
     label: 'Curiosidades',
@@ -45,14 +45,14 @@ export const NICHE_STYLES: Record<string, {
     colorPalette: 'vivid saturated colors, high contrast, clean',
     cameraStyle: 'quick cuts, zoom-ins, dynamic transitions',
     musicMood: 'upbeat electronic, energetic, surprising sound effects',
-    scriptTone: 'Excited fact presenter — mind-blowing facts, "did you know?", fast-paced',
+    scriptTone: 'Excited fact presenter — mind-blowing facts, fast-paced, did-you-know moments',
   },
   terror: {
     label: 'Terror',
     videoStyle: 'dark cinematic horror',
     promptPrefix: 'Dark atmospheric horror scene, moody low-key lighting, fog, shadows, cinematic 4K',
     narration: 'A slow, suspenseful narrator building tension and dread',
-    sceneDuration: '10',
+    sceneDuration: '5',
     useStock: false,
     colorPalette: 'dark blues, deep shadows, cold desaturated, red accents',
     cameraStyle: 'slow creeping dolly, handheld tension, Dutch angles',
@@ -69,7 +69,7 @@ export const NICHE_STYLES: Record<string, {
     colorPalette: 'warm golden tones, sunrise/sunset, lens flares',
     cameraStyle: 'epic slow-motion, aerial sweeps, dramatic reveals',
     musicMood: 'inspiring orchestral, building crescendo, piano and strings',
-    scriptTone: 'Motivational speaker — powerful quotes, personal growth, "you can do this"',
+    scriptTone: 'Motivational speaker — powerful quotes, personal growth, you-can-do-this energy',
   },
   tecnologia: {
     label: 'Tecnología',
@@ -117,11 +117,10 @@ export const NICHE_STYLES: Record<string, {
     colorPalette: 'vibrant neons, dark backgrounds, particle effects, explosions',
     cameraStyle: 'fast dynamic, action tracking, slow-mo moments',
     musicMood: 'intense electronic, dubstep drops, adrenaline',
-    scriptTone: 'Excited gamer — epic moments, lore deep-dives, "insane" reactions',
+    scriptTone: 'Excited gamer — epic moments, lore deep-dives, insane reactions',
   },
 }
 
-// Default fallback for unknown niches
 export const DEFAULT_STYLE = {
   label: 'General',
   videoStyle: 'cinematic high quality',
@@ -136,6 +135,13 @@ export const DEFAULT_STYLE = {
 }
 
 export function getNicheStyle(niche: string) {
-  const key = niche.toLowerCase().replace(/\s+/g, '')
+  const key = niche.toLowerCase().replace(/[^a-záéíóúñ]/g, '')
   return NICHE_STYLES[key] || DEFAULT_STYLE
+}
+
+// Calculate how many scenes needed for target duration
+export function getSceneCount(targetDurationSec: number, sceneDuration: string): number {
+  const dur = parseInt(sceneDuration) || 5
+  const count = Math.ceil(targetDurationSec / dur)
+  return Math.min(Math.max(count, 3), 8) // min 3, max 8 scenes
 }
