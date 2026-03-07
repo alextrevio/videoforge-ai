@@ -5,7 +5,7 @@ import { NextRequest, NextResponse } from 'next/server'
 // Browser polls /api/generate/ai-video/status for results
 export async function POST(req: NextRequest) {
   try {
-    const { prompt, aspectRatio } = await req.json()
+    const { prompt, aspectRatio, duration } = await req.json()
 
     const falKey = process.env.FAL_KEY
     if (!falKey) {
@@ -17,7 +17,7 @@ export async function POST(req: NextRequest) {
     const submitRes = await fetch(`https://queue.fal.run/${model}`, {
       method: 'POST',
       headers: { 'Authorization': `Key ${falKey}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ prompt, duration: '5', aspect_ratio: aspectRatio || '9:16' }),
+      body: JSON.stringify({ prompt, duration: duration || '5', aspect_ratio: aspectRatio || '9:16' }),
     })
 
     if (!submitRes.ok) {

@@ -160,10 +160,11 @@ export function AppProvider({ children, userId }: { children: ReactNode; userId?
         const durStr = video.duration.replace(/[^0-9]/g, '') || '60'
         const sRef = settingsRef.current
 
-        // STEP 1: SCRIPT (GPT generates scene-based script)
-        updateVid({ status: 'script' as VideoStatus, progress: 10, renderData: { renderStatus: 'generating script...' } })
+        // STEP 1: SCRIPT (Pixar-quality storytelling with narration & dialogue)
+        updateVid({ status: 'script' as VideoStatus, progress: 10, renderData: { renderStatus: 'writing story...' } })
         let finalScript = video.script
         let scriptScenes: string[] = []
+        let scenesRich: any[] = []
         if (!finalScript || finalScript.length < 20) {
           const r = await fetch('/api/generate/script', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title: video.title, description: video.description, niche, duration: durStr, lang: sRef.lang || 'es-MX' }) })
           if (!r.ok) throw new Error(`Script API error: ${r.status}`)
@@ -171,6 +172,7 @@ export function AppProvider({ children, userId }: { children: ReactNode; userId?
           if (d.error) throw new Error(d.error)
           finalScript = d.script || video.title
           scriptScenes = d.scenes || []
+          scenesRich = d.scenesRich || []
           console.log('[VideoForge] Script generated:', finalScript.length, 'chars,', scriptScenes.length, 'scenes')
           updateVid({ script: finalScript, progress: 25 })
         }
@@ -185,21 +187,21 @@ export function AppProvider({ children, userId }: { children: ReactNode; userId?
         }
         if (scriptScenes.length === 0) scriptScenes = [finalScript.slice(0, 200)]
 
-        // STEP 2: VISUAL STORYBOARD (GPT as creative director — cohesive scenes)
-        updateVid({ status: 'visuals' as VideoStatus, progress: 30, renderData: { renderStatus: 'creating visual storyboard...' } })
-        let visualPrompts: string[] = scriptScenes.map((s: string) => s.slice(0, 80))
+        // STEP 2: VISUAL STORYBOARD (Pixar/Disney animation director)
+        updateVid({ status: 'visuals' as VideoStatus, progress: 30, renderData: { renderStatus: 'designing animation storyboard...' } })
+        let visualPrompts: string[] = scriptScenes.map((s: string) => `3D Pixar Disney animation style, ${s.slice(0, 80)}`)
         try {
-          const promptRes = await fetch('/api/generate/scene-prompts', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ scenes: scriptScenes, niche, title: video.title, script: finalScript }) })
+          const promptRes = await fetch('/api/generate/scene-prompts', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ scenes: scriptScenes, scenesRich, niche, title: video.title }) })
           if (promptRes.ok) {
             const promptData = await promptRes.json()
-            console.log('[VideoForge] Storyboard:', promptData.mode, '| Concept:', promptData.concept)
+            console.log('[VideoForge] Storyboard:', promptData.mode, '| Character:', promptData.character?.slice(0, 60))
             if (promptData.prompts?.length) visualPrompts = promptData.prompts
           }
         } catch {}
         updateVid({ progress: 40 })
 
-        // STEP 3: AI VIDEO — submit all scenes, then poll from browser
-        updateVid({ status: 'editing' as VideoStatus, progress: 45, renderData: { renderStatus: 'submitting video generation...' } })
+        // STEP 3: AI VIDEO — submit all scenes (10s clips for longer scenes)
+        updateVid({ status: 'editing' as VideoStatus, progress: 45, renderData: { renderStatus: 'generating animated scenes...' } })
         let aiClips: any[] = []
         const totalScenes = Math.min(visualPrompts.length, 4)
 
@@ -210,7 +212,7 @@ export function AppProvider({ children, userId }: { children: ReactNode; userId?
             const subRes = await fetch('/api/generate/ai-video', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ prompt: visualPrompts[i], aspectRatio: '9:16' }),
+              body: JSON.stringify({ prompt: visualPrompts[i], aspectRatio: '9:16', duration: '10' }),
             })
             if (subRes.ok) {
               const subData = await subRes.json()
@@ -247,7 +249,7 @@ export function AppProvider({ children, userId }: { children: ReactNode; userId?
                   const pollData = await pollRes.json()
                   if (pollData.status === 'completed' && pollData.videoUrl) {
                     console.log(`[VideoForge] Clip ${idx + 1} READY:`, pollData.videoUrl.slice(0, 60))
-                    completed.push({ sceneIndex: idx, videoUrl: pollData.videoUrl, duration: 5 })
+                    completed.push({ sceneIndex: idx, videoUrl: pollData.videoUrl, duration: 10 })
                     pending.delete(idx)
                   } else if (pollData.status === 'failed') {
                     console.error(`[VideoForge] Clip ${idx + 1} FAILED`)
@@ -295,7 +297,7 @@ export function AppProvider({ children, userId }: { children: ReactNode; userId?
           try {
             const concatRes = await fetch('/api/generate/concat', {
               method: 'POST', headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ clips: videoClips.map((c: any) => ({ videoUrl: c.videoUrl, duration: 5 })), title: video.title })
+              body: JSON.stringify({ clips: videoClips.map((c: any) => ({ videoUrl: c.videoUrl, duration: c.duration || 10 })), title: video.title })
             })
             if (concatRes.ok) {
               const concatData = await concatRes.json()

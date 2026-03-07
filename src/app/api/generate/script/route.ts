@@ -1,69 +1,70 @@
 import { NextRequest, NextResponse } from 'next/server'
 
-// POST /api/generate/script
-// GPT generates a video script optimized for AI video generation
 export async function POST(req: NextRequest) {
   try {
     const { title, description, niche, duration, lang } = await req.json()
     
     const apiKey = process.env.OPENAI_API_KEY
     if (!apiKey) {
-      const durSec = parseInt(duration) || 45
-      return NextResponse.json({
-        script: `[GUIÓN SIMULADO — ${title}]\n\nEscena 1: Introducción impactante sobre ${title.toLowerCase()}.\n\nEscena 2: Desarrollo del tema principal con datos sorprendentes.\n\nEscena 3: El momento más impactante de la historia.\n\nEscena 4: Conclusión y llamada a la acción.`,
-        mode: 'simulation',
-      })
+      return NextResponse.json({ script: `[SIMULADO] ${title}`, scenes: [], mode: 'simulation' })
     }
 
-    const durSec = parseInt(duration) || 45
-    const numScenes = Math.min(Math.ceil(durSec / 10), 4)
+    const durSec = parseInt(duration) || 60
+    const numScenes = Math.min(Math.ceil(durSec / 15), 4) // 15s per scene
 
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`,
-      },
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
       body: JSON.stringify({
         model: 'gpt-4o-mini',
-        max_tokens: 1500,
+        max_tokens: 2000,
         response_format: { type: 'json_object' },
         messages: [
           {
             role: 'system',
-            content: `Eres un guionista experto en videos virales cortos (YouTube Shorts, TikTok, Reels).
+            content: `You are a PIXAR-LEVEL storyteller who writes scripts for animated short films.
 
-Tu trabajo: Crear un guión de ${numScenes} escenas que sea ENTRETENIDO, ENGANCHANTE y VISUAL.
+Your scripts are EMOTIONAL, CINEMATIC, and tell a COMPLETE STORY with a beginning, middle, and end.
 
-REGLAS:
-- Escribe en español (${lang || 'es-MX'})
-- El video dura ${durSec} segundos total (~${numScenes} escenas de ${Math.round(durSec/numScenes)}s cada una)
-- Nicho: ${niche}
-- Cada escena debe ser VISUALMENTE DESCRIPTIVA — describe lo que se VE, no solo lo que se dice
-- Escena 1: GANCHO — algo impactante que atrape en los primeros 3 segundos
-- Escenas intermedias: DESARROLLO — datos, historia, drama, tensión creciente
-- Última escena: CLIMAX + CTA — el momento más impactante + llamada a la acción
-- Cada escena debe conectar narrativamente con la siguiente
-- Incluye emociones: sorpresa, miedo, curiosidad, asombro
-- NO uses marcas de tiempo como [0:00-0:05]
-- Cada escena: 2-3 oraciones descriptivas
+RULES:
+- Write in Spanish (${lang || 'es-MX'})
+- The video is ${durSec} seconds total, divided into ${numScenes} scenes of ~${Math.round(durSec/numScenes)} seconds each
+- Niche: ${niche}
+- Each scene MUST include:
+  • NARRATION: A narrator voice telling the story (like a Pixar movie narrator)
+  • DIALOGUE: Characters speaking to each other (2-3 lines per scene)
+  • EMOTION: What the audience should FEEL (wonder, sadness, joy, surprise)
+  • VISUAL DESCRIPTION: What we SEE in detail (like a movie script)
+- The story must have:
+  • Scene 1: SETUP — introduce the world and main character with wonder
+  • Middle scenes: CONFLICT — something goes wrong, tension builds
+  • Last scene: RESOLUTION — emotional payoff, heartwarming ending
+- Style: Pixar/Disney animated film — warm, colorful, emotionally resonant
+- Include sound descriptions: [music swells], [soft piano], [birds chirping]
 
-Responde SOLO con JSON:
+Respond with JSON:
 {
-  "script": "El guión completo como texto corrido",
-  "scenes": ["Escena 1 texto", "Escena 2 texto", ...],
-  "hook": "Frase gancho de los primeros 3 segundos",
-  "tags": ["tag1", "tag2", "tag3"]
+  "script": "Full script with narration, dialogue, and sound cues",
+  "scenes": [
+    {
+      "narration": "The narrator's voice for this scene",
+      "dialogue": "Character 1: 'Hello!' Character 2: 'Hi there!'",
+      "emotion": "wonder and curiosity",
+      "visual": "A tiny robot opens its eyes for the first time in a colorful garden"
+    }
+  ],
+  "hook": "Opening line that hooks the viewer",
+  "title_suggestion": "A better title if needed",
+  "tags": ["tag1", "tag2"]
 }`
           },
-          { role: 'user', content: `Genera un guión viral de ${numScenes} escenas para: "${title}"\nDescripción: ${description || title}` }
+          { role: 'user', content: `Write a Pixar-quality animated short script for: "${title}"\nDescription: ${description || title}` }
         ],
       }),
     })
 
     if (!response.ok) {
       const err = await response.text()
-      console.error('[script] GPT error:', err)
       return NextResponse.json({ error: `GPT error: ${response.status}` }, { status: 500 })
     }
 
@@ -72,15 +73,19 @@ Responde SOLO con JSON:
     
     try {
       const parsed = JSON.parse(text.replace(/```json|```/g, '').trim())
+      const scenes = (parsed.scenes || []).map((s: any) => 
+        `${s.narration || ''} ${s.dialogue || ''} ${s.visual || ''}`.trim()
+      )
       return NextResponse.json({
-        script: parsed.script || parsed.scenes?.join('\n\n') || text,
-        scenes: parsed.scenes || [],
+        script: parsed.script || scenes.join('\n\n'),
+        scenes,
+        scenesRich: parsed.scenes, // full scene objects with emotion, visual, etc.
         hook: parsed.hook || '',
         tags: parsed.tags || [niche],
         mode: 'gpt',
       })
     } catch {
-      return NextResponse.json({ script: text, scenes: [], hook: '', tags: [niche], mode: 'gpt-raw' })
+      return NextResponse.json({ script: text, scenes: [], mode: 'gpt-raw' })
     }
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 })
