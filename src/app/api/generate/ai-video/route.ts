@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 
+// Allow up to 300s for this function (Vercel Pro)
+export const maxDuration = 300
+
 // POST /api/generate/ai-video
 // Generates a SINGLE AI video clip using Kling via fal.ai
 // Called once per scene — the browser handles sequencing
@@ -32,10 +35,9 @@ export async function POST(req: NextRequest) {
     const responseUrl = submitData.response_url
     console.log('[fal.ai] Queued:', submitData.request_id)
 
-    // Poll until complete (max 3 min within this serverless function)
-    // Vercel Hobby has 60s timeout, so we poll for max 55s
+    // Poll until complete — Pro plan allows up to 300s
     const startTime = Date.now()
-    const maxWait = 55000 // 55 seconds
+    const maxWait = 280000 // 280 seconds (safe margin under 300s limit)
 
     while (Date.now() - startTime < maxWait) {
       await new Promise(r => setTimeout(r, 3000)) // wait 3s between polls
@@ -68,7 +70,8 @@ export async function POST(req: NextRequest) {
       } catch {}
     }
 
-    // Timeout — return what we have
+    // Timeout — Kling didn't finish in time
+    console.error('[fal.ai] TIMEOUT after', Math.round((Date.now() - startTime) / 1000), 'seconds')
     return NextResponse.json({ videoUrl: null, mode: 'timeout', requestId: submitData.request_id })
   } catch (error: any) {
     console.error('[fal.ai] Error:', error.message)
