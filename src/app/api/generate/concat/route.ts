@@ -1,42 +1,33 @@
 import { NextRequest, NextResponse } from 'next/server'
 
 // POST /api/generate/concat
-// Concatenates video clips into a single MP4 using Shotstack API
+// Concatenates clips + burns in viral subtitles using Shotstack
 export async function POST(req: NextRequest) {
   try {
     const { clips, title, subtitles } = await req.json()
-    // clips: [{ videoUrl: "https://...", duration: 5 }, ...]
 
     const apiKey = process.env.SHOTSTACK_API_KEY
     if (!apiKey) {
       return NextResponse.json({
-        error: null,
         videoUrl: clips?.[0]?.videoUrl || null,
         mode: 'no-shotstack',
-        message: 'SHOTSTACK_API_KEY not configured. Clips available individually.',
       })
     }
 
-    // Filter only clips with valid video URLs
     const validClips = (clips || []).filter((c: any) => c.videoUrl)
     if (validClips.length === 0) {
-      return NextResponse.json({ error: 'No valid video clips to concatenate' }, { status: 400 })
+      return NextResponse.json({ error: 'No valid video clips' }, { status: 400 })
     }
 
-    // Build Shotstack timeline — clips play sequentially with smooth transitions
+    // VIDEO TRACK — clips in sequence with smooth transitions
     let currentStart = 0
-    const transitionDuration = 0.5 // half-second crossfade between scenes
     const trackClips = validClips.map((clip: any, i: number) => {
       const dur = clip.duration || 5
       const isFirst = i === 0
       const isLast = i === validClips.length - 1
       const entry = {
-        asset: {
-          type: 'video',
-          src: clip.videoUrl,
-          volume: 1,
-        },
-        start: Math.max(0, currentStart - (isFirst ? 0 : transitionDuration)),
+        asset: { type: 'video', src: clip.videoUrl, volume: 1 },
+        start: currentStart,
         length: dur,
         transition: {
           in: isFirst ? 'fade' : 'carouselLeft',
@@ -48,24 +39,35 @@ export async function POST(req: NextRequest) {
     })
     const totalDuration = currentStart
 
-    // Optional: add title card at the beginning
-    const titleTrack = title ? [{
-      asset: {
-        type: 'title',
-        text: title,
-        style: 'minimal',
-        size: 'small',
-      },
-      start: 0,
-      length: 3,
-      transition: { in: 'fade', out: 'fade' },
-    }] : []
+    // SUBTITLE TRACK — viral-style burned into video
+    const subtitleClips = (subtitles || []).filter((s: any) => s.text && s.start < totalDuration).map((sub: any) => {
+      const text = sub.text.toUpperCase()
+      const emphasis = (sub.emphasis || '').toUpperCase()
+      
+      return {
+        asset: {
+          type: 'html',
+          html: `<div style="font-family: 'Montserrat', 'Arial Black', sans-serif; font-size: 42px; font-weight: 900; color: white; text-align: center; text-shadow: 3px 3px 6px rgba(0,0,0,0.9), -1px -1px 3px rgba(0,0,0,0.5); line-height: 1.2; padding: 0 20px; word-wrap: break-word;">
+            ${emphasis && text.includes(emphasis) 
+              ? text.replace(emphasis, `<span style="color: #FFD700; font-size: 52px;">${emphasis}</span>`)
+              : text
+            }
+          </div>`,
+          width: 540,
+          height: 120,
+        },
+        start: Math.min(sub.start, totalDuration - 0.5),
+        length: Math.min((sub.end || sub.start + 2.5) - sub.start, totalDuration - sub.start),
+        position: 'bottom',
+        offset: { y: 0.15 },
+      }
+    })
 
     const timeline: any = {
       tracks: [
-        // Title overlay (on top)
-        ...(titleTrack.length > 0 ? [{ clips: titleTrack }] : []),
-        // Video clips (main track)
+        // Subtitles on top
+        ...(subtitleClips.length > 0 ? [{ clips: subtitleClips }] : []),
+        // Video clips
         { clips: trackClips },
       ],
     }
@@ -74,35 +76,33 @@ export async function POST(req: NextRequest) {
       timeline,
       output: {
         format: 'mp4',
-        resolution: 'hd', // 1080p
-        aspectRatio: '9:16', // vertical for shorts
+        resolution: 'hd',
+        aspectRatio: '9:16',
         fps: 30,
       },
     }
 
-    // Submit render to Shotstack
+    console.log('[Shotstack] Submitting:', validClips.length, 'clips,', subtitleClips.length, 'subtitles,', totalDuration, 'seconds')
+
     const renderRes = await fetch('https://api.shotstack.io/v1/render', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': apiKey,
-      },
+      headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey },
       body: JSON.stringify(payload),
     })
 
     if (!renderRes.ok) {
       const err = await renderRes.text()
-      return NextResponse.json({ error: `Shotstack error: ${err}` }, { status: 500 })
+      console.error('[Shotstack] Error:', err.slice(0, 300))
+      return NextResponse.json({ error: `Shotstack: ${err.slice(0, 200)}` }, { status: 500 })
     }
 
     const renderData = await renderRes.json()
-    const renderId = renderData.response?.id
-
     return NextResponse.json({
-      renderId,
+      renderId: renderData.response?.id,
       status: 'queued',
       mode: 'shotstack',
       clipCount: validClips.length,
+      subtitleCount: subtitleClips.length,
       totalDuration,
     })
   } catch (error: any) {

@@ -318,7 +318,7 @@ export function AppProvider({ children, userId }: { children: ReactNode; userId?
           try {
             const concatRes = await fetch('/api/generate/concat', {
               method: 'POST', headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ clips: videoClips.map((c: any) => ({ videoUrl: c.videoUrl, duration: c.duration || 10 })), title: video.title })
+              body: JSON.stringify({ clips: videoClips.map((c: any) => ({ videoUrl: c.videoUrl, duration: c.duration || 5 })), title: video.title, subtitles: subData.subtitles || [] })
             })
             if (concatRes.ok) {
               const concatData = await concatRes.json()
