@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 
 export async function POST(req: NextRequest) {
   try {
-    const { title, description, niche, duration, lang } = await req.json()
+    const { title, description, niche, duration, lang, nicheStyle } = await req.json()
     
     const apiKey = process.env.OPENAI_API_KEY
     if (!apiKey) {
@@ -10,7 +10,11 @@ export async function POST(req: NextRequest) {
     }
 
     const durSec = parseInt(duration) || 60
-    const numScenes = Math.min(Math.ceil(durSec / 15), 4) // 15s per scene
+    const sceneDur = parseInt(nicheStyle?.sceneDuration) || 10
+    const numScenes = Math.min(Math.ceil(durSec / sceneDur), 6)
+    const tone = nicheStyle?.scriptTone || 'Engaging storyteller'
+    const narrationStyle = nicheStyle?.narration || 'An engaging narrator'
+    const musicMood = nicheStyle?.musicMood || 'cinematic ambient'
 
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
@@ -22,49 +26,48 @@ export async function POST(req: NextRequest) {
         messages: [
           {
             role: 'system',
-            content: `You are a PIXAR-LEVEL storyteller who writes scripts for animated short films.
-
-Your scripts are EMOTIONAL, CINEMATIC, and tell a COMPLETE STORY with a beginning, middle, and end.
+            content: `You are a MASTER VIDEO SCRIPTWRITER. Your style: ${tone}
 
 RULES:
 - Write in Spanish (${lang || 'es-MX'})
-- The video is ${durSec} seconds total, divided into ${numScenes} scenes of ~${Math.round(durSec/numScenes)} seconds each
+- Video duration: ${durSec} seconds total, ${numScenes} scenes of ~${sceneDur}s each
 - Niche: ${niche}
+- Narration style: ${narrationStyle}
+- Music mood: ${musicMood}
 - Each scene MUST include:
-  • NARRATION: A narrator voice telling the story (like a Pixar movie narrator)
-  • DIALOGUE: Characters speaking to each other (2-3 lines per scene)
-  • EMOTION: What the audience should FEEL (wonder, sadness, joy, surprise)
-  • VISUAL DESCRIPTION: What we SEE in detail (like a movie script)
-- The story must have:
-  • Scene 1: SETUP — introduce the world and main character with wonder
-  • Middle scenes: CONFLICT — something goes wrong, tension builds
-  • Last scene: RESOLUTION — emotional payoff, heartwarming ending
-- Style: Pixar/Disney animated film — warm, colorful, emotionally resonant
-- Include sound descriptions: [music swells], [soft piano], [birds chirping]
+  • NARRATION: ${narrationStyle}
+  • DIALOGUE: Characters speaking (if applicable for this niche)
+  • EMOTION: What the audience should FEEL
+  • VISUAL: Detailed description of what we SEE
+  • SOUND: Background sounds/music [${musicMood}]
+- Story structure:
+  • Scene 1: HOOK — grab attention in first 3 seconds
+  • Middle: DEVELOPMENT — build tension, curiosity, or emotion
+  • Last scene: PAYOFF — satisfying conclusion, twist, or call to action
+- Make it VIRAL — surprising, emotional, or mind-blowing
 
 Respond with JSON:
 {
-  "script": "Full script with narration, dialogue, and sound cues",
+  "script": "Full script with narration and dialogue",
   "scenes": [
     {
-      "narration": "The narrator's voice for this scene",
-      "dialogue": "Character 1: 'Hello!' Character 2: 'Hi there!'",
-      "emotion": "wonder and curiosity",
-      "visual": "A tiny robot opens its eyes for the first time in a colorful garden"
+      "narration": "Narrator text for this scene",
+      "dialogue": "Character dialogue (if any)",
+      "emotion": "target emotion",
+      "visual": "What we see in detail",
+      "sound": "Background sounds/music"
     }
   ],
-  "hook": "Opening line that hooks the viewer",
-  "title_suggestion": "A better title if needed",
+  "hook": "Opening hook line",
   "tags": ["tag1", "tag2"]
 }`
           },
-          { role: 'user', content: `Write a Pixar-quality animated short script for: "${title}"\nDescription: ${description || title}` }
+          { role: 'user', content: `Write a viral ${numScenes}-scene script for: "${title}"\nDescription: ${description || title}` }
         ],
       }),
     })
 
     if (!response.ok) {
-      const err = await response.text()
       return NextResponse.json({ error: `GPT error: ${response.status}` }, { status: 500 })
     }
 
@@ -79,7 +82,7 @@ Respond with JSON:
       return NextResponse.json({
         script: parsed.script || scenes.join('\n\n'),
         scenes,
-        scenesRich: parsed.scenes, // full scene objects with emotion, visual, etc.
+        scenesRich: parsed.scenes,
         hook: parsed.hook || '',
         tags: parsed.tags || [niche],
         mode: 'gpt',

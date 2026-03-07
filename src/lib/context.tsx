@@ -160,13 +160,18 @@ export function AppProvider({ children, userId }: { children: ReactNode; userId?
         const durStr = video.duration.replace(/[^0-9]/g, '') || '60'
         const sRef = settingsRef.current
 
-        // STEP 1: SCRIPT (Pixar-quality storytelling with narration & dialogue)
+        // Load niche-specific style (Pixar for infantil, stock for curiosidades, etc.)
+        const { getNicheStyle } = await import('./nicheStyles')
+        const nicheStyle = getNicheStyle(niche)
+        console.log('[VideoForge] Niche:', niche, '| Style:', nicheStyle.videoStyle, '| Stock:', nicheStyle.useStock, '| Scene duration:', nicheStyle.sceneDuration)
+
+        // STEP 1: SCRIPT (adapted to niche tone and style)
         updateVid({ status: 'script' as VideoStatus, progress: 10, renderData: { renderStatus: 'writing story...' } })
         let finalScript = video.script
         let scriptScenes: string[] = []
         let scenesRich: any[] = []
         if (!finalScript || finalScript.length < 20) {
-          const r = await fetch('/api/generate/script', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title: video.title, description: video.description, niche, duration: durStr, lang: sRef.lang || 'es-MX' }) })
+          const r = await fetch('/api/generate/script', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title: video.title, description: video.description, niche, duration: durStr, lang: sRef.lang || 'es-MX', nicheStyle }) })
           if (!r.ok) throw new Error(`Script API error: ${r.status}`)
           const d = await r.json()
           if (d.error) throw new Error(d.error)
@@ -189,9 +194,9 @@ export function AppProvider({ children, userId }: { children: ReactNode; userId?
 
         // STEP 2: VISUAL STORYBOARD (Pixar/Disney animation director)
         updateVid({ status: 'visuals' as VideoStatus, progress: 30, renderData: { renderStatus: 'designing animation storyboard...' } })
-        let visualPrompts: string[] = scriptScenes.map((s: string) => `3D Pixar Disney animation style, ${s.slice(0, 80)}`)
+        let visualPrompts: string[] = scriptScenes.map((s: string) => `${nicheStyle.promptPrefix}, ${s.slice(0, 80)}`)
         try {
-          const promptRes = await fetch('/api/generate/scene-prompts', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ scenes: scriptScenes, scenesRich, niche, title: video.title }) })
+          const promptRes = await fetch('/api/generate/scene-prompts', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ scenes: scriptScenes, scenesRich, niche, title: video.title, nicheStyle }) })
           if (promptRes.ok) {
             const promptData = await promptRes.json()
             console.log('[VideoForge] Storyboard:', promptData.mode, '| Character:', promptData.character?.slice(0, 60))
@@ -200,78 +205,94 @@ export function AppProvider({ children, userId }: { children: ReactNode; userId?
         } catch {}
         updateVid({ progress: 40 })
 
-        // STEP 3: AI VIDEO — submit all scenes (10s clips for longer scenes)
-        updateVid({ status: 'editing' as VideoStatus, progress: 45, renderData: { renderStatus: 'generating animated scenes...' } })
+        // STEP 3: VIDEO — AI generation or stock footage based on niche
+        updateVid({ status: 'editing' as VideoStatus, progress: 45, renderData: { renderStatus: 'generating video scenes...' } })
         let aiClips: any[] = []
-        const totalScenes = Math.min(visualPrompts.length, 4)
+        const totalScenes = Math.min(visualPrompts.length, 6)
+        const clipDuration = nicheStyle.sceneDuration || '5'
 
-        // Submit all scenes in parallel (each call is fast ~2s)
-        const submissions: any[] = []
-        for (let i = 0; i < totalScenes; i++) {
+        if (nicheStyle.useStock) {
+          // STOCK FOOTAGE for niches like curiosidades, motivación, tech, lifestyle, finanzas
+          console.log('[VideoForge] Using stock footage for niche:', niche)
           try {
-            const subRes = await fetch('/api/generate/ai-video', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ prompt: visualPrompts[i], aspectRatio: '9:16', duration: '10' }),
-            })
-            if (subRes.ok) {
-              const subData = await subRes.json()
-              console.log(`[VideoForge] Scene ${i + 1} submitted:`, subData.mode, subData.requestId?.slice(0, 20))
-              if (subData.mode === 'queued') {
-                submissions.push({ sceneIndex: i, ...subData })
-              }
+            const scenes2 = scriptScenes.map((text: string, i: number) => ({ text: text.slice(0, 50), startSec: i * parseInt(clipDuration), endSec: (i + 1) * parseInt(clipDuration) }))
+            const mediaRes = await fetch('/api/generate/media', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ scenes: scenes2, niche }) })
+            if (mediaRes.ok) {
+              const mediaData = await mediaRes.json()
+              aiClips = (mediaData.media || []).map((m: any) => ({ ...m, videoUrl: null, imageUrl: m.imageUrl }))
             }
-          } catch (err: any) {
-            console.error(`[VideoForge] Scene ${i + 1} submit error:`, err.message)
-          }
-        }
+          } catch {}
+        } else {
+          // AI VIDEO (Kling) for niches like infantil, terror, historia, gaming
+          console.log('[VideoForge] Using AI video (Kling) for niche:', niche)
 
-        // Poll all submissions until complete (max 5 min)
-        if (submissions.length > 0) {
-          updateVid({ progress: 50, renderData: { renderStatus: `waiting for ${submissions.length} AI clips...` } })
-          const pending = new Map(submissions.map(s => [s.sceneIndex, s]))
-          const completed: any[] = []
-          let pollAttempts = 0
-          const maxPollAttempts = 60 // 60 * 5s = 5 min
-
-          while (pending.size > 0 && pollAttempts < maxPollAttempts) {
-            await new Promise(r => setTimeout(r, 5000))
-            pollAttempts++
-
-            for (const [idx, sub] of Array.from(pending.entries())) {
-              try {
-                const pollRes = await fetch('/api/generate/ai-video/status', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ statusUrl: sub.statusUrl, responseUrl: sub.responseUrl }),
-                })
-                if (pollRes.ok) {
-                  const pollData = await pollRes.json()
-                  if (pollData.status === 'completed' && pollData.videoUrl) {
-                    console.log(`[VideoForge] Clip ${idx + 1} READY:`, pollData.videoUrl.slice(0, 60))
-                    completed.push({ sceneIndex: idx, videoUrl: pollData.videoUrl, duration: 10 })
-                    pending.delete(idx)
-                  } else if (pollData.status === 'failed') {
-                    console.error(`[VideoForge] Clip ${idx + 1} FAILED`)
-                    pending.delete(idx)
-                  }
+          const submissions: any[] = []
+          for (let i = 0; i < totalScenes; i++) {
+            try {
+              const subRes = await fetch('/api/generate/ai-video', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ prompt: visualPrompts[i], aspectRatio: '9:16', duration: clipDuration }),
+              })
+              if (subRes.ok) {
+                const subData = await subRes.json()
+                console.log(`[VideoForge] Scene ${i + 1} submitted:`, subData.mode, subData.requestId?.slice(0, 20))
+                if (subData.mode === 'queued') {
+                  submissions.push({ sceneIndex: i, ...subData })
                 }
-              } catch {}
+              }
+            } catch (err: any) {
+              console.error(`[VideoForge] Scene ${i + 1} submit error:`, err.message)
             }
-
-            updateVid({
-              progress: 50 + Math.round((completed.length / totalScenes) * 15),
-              renderData: { renderStatus: `AI video: ${completed.length}/${totalScenes} clips ready (${pending.size} pending)` }
-            })
           }
 
-          aiClips = completed
-          console.log(`[VideoForge] AI Video done: ${aiClips.length}/${totalScenes} clips generated`)
+          // Poll all submissions until complete (max 5 min)
+          if (submissions.length > 0) {
+            updateVid({ progress: 50, renderData: { renderStatus: `waiting for ${submissions.length} AI clips...` } })
+            const pending = new Map(submissions.map(s => [s.sceneIndex, s]))
+            const completed: any[] = []
+            let pollAttempts = 0
+            const maxPollAttempts = 60
+
+            while (pending.size > 0 && pollAttempts < maxPollAttempts) {
+              await new Promise(r => setTimeout(r, 5000))
+              pollAttempts++
+
+              for (const [idx, sub] of Array.from(pending.entries())) {
+                try {
+                  const pollRes = await fetch('/api/generate/ai-video/status', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ statusUrl: sub.statusUrl, responseUrl: sub.responseUrl }),
+                  })
+                  if (pollRes.ok) {
+                    const pollData = await pollRes.json()
+                    if (pollData.status === 'completed' && pollData.videoUrl) {
+                      console.log(`[VideoForge] Clip ${idx + 1} READY:`, pollData.videoUrl.slice(0, 60))
+                      completed.push({ sceneIndex: idx, videoUrl: pollData.videoUrl, duration: parseInt(clipDuration) })
+                      pending.delete(idx)
+                    } else if (pollData.status === 'failed') {
+                      console.error(`[VideoForge] Clip ${idx + 1} FAILED`)
+                      pending.delete(idx)
+                    }
+                  }
+                } catch {}
+              }
+
+              updateVid({
+                progress: 50 + Math.round((completed.length / totalScenes) * 15),
+                renderData: { renderStatus: `AI video: ${completed.length}/${totalScenes} clips ready (${pending.size} pending)` }
+              })
+            }
+
+            aiClips = completed
+            console.log(`[VideoForge] AI Video done: ${aiClips.length}/${totalScenes} clips generated`)
+          }
         }
 
-        // Fallback to Pexels if no AI clips generated
+        // Fallback to Pexels if nothing generated
         if (aiClips.length === 0) {
-          console.log('[VideoForge] No AI clips — falling back to Pexels')
+          console.log('[VideoForge] No clips — falling back to Pexels')
           try {
             const scenes2 = scriptScenes.map((text: string, i: number) => ({ text: text.slice(0, 30), startSec: i * 5, endSec: (i + 1) * 5 }))
             const mediaRes = await fetch('/api/generate/media', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ scenes: scenes2, niche }) })
