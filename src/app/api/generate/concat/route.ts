@@ -1,17 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server'
 
 // POST /api/generate/concat
-// Concatenates clips + burns in viral subtitles using Shotstack
+// Concatenates clips + voiceover + viral subtitles via Shotstack
 export async function POST(req: NextRequest) {
   try {
-    const { clips, title, subtitles, audioBase64, audioDuration } = await req.json()
+    const { clips, title, subtitles, audioUrl, audioDuration, productionMode } = await req.json()
 
     const apiKey = process.env.SHOTSTACK_API_KEY
     if (!apiKey) {
-      return NextResponse.json({
-        videoUrl: clips?.[0]?.videoUrl || null,
-        mode: 'no-shotstack',
-      })
+      return NextResponse.json({ videoUrl: clips?.[0]?.videoUrl || null, mode: 'no-shotstack' })
     }
 
     const validClips = (clips || []).filter((c: any) => c.videoUrl)
@@ -19,14 +16,22 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'No valid video clips' }, { status: 400 })
     }
 
-    // VIDEO TRACK — clips in sequence with smooth transitions
+    const isCharacterMode = productionMode === 'character-lipsync'
+
+    // VIDEO TRACK — clips in sequence
     let currentStart = 0
     const trackClips = validClips.map((clip: any, i: number) => {
       const dur = clip.duration || 5
       const isFirst = i === 0
       const isLast = i === validClips.length - 1
-      const entry = {
-        asset: { type: 'video', src: clip.videoUrl, volume: 1 },
+      const entry: any = {
+        asset: { 
+          type: 'video', 
+          src: clip.videoUrl,
+          // Mute original audio for narrator modes (AI video has random sounds)
+          // Keep audio for lip-sync modes (the lip-synced clip has the voice)
+          volume: isCharacterMode ? 1 : 0,
+        },
         start: currentStart,
         length: dur,
         transition: {
@@ -44,43 +49,40 @@ export async function POST(req: NextRequest) {
     const subs = subtitles || []
     
     if (subs.length > 0 && subs[0].word) {
-      // Word-level timestamps from ElevenLabs — group into 3-4 word chunks
+      // Word-level timestamps from ElevenLabs
       let chunkStart = 0
       let chunkWords: string[] = []
-      let chunkEmphasis = ''
       
       for (let i = 0; i < subs.length; i++) {
         const w = subs[i]
         if (chunkWords.length === 0) chunkStart = w.start
         chunkWords.push(w.word)
         
-        // Every 3-4 words or at punctuation, create a subtitle block
         const isPunct = /[.!?;,]$/.test(w.word)
-        if (chunkWords.length >= 4 || isPunct || i === subs.length - 1) {
+        if (chunkWords.length >= 3 || isPunct || i === subs.length - 1) {
           const text = chunkWords.join(' ').toUpperCase()
           const longest = chunkWords.reduce((a, b) => a.length > b.length ? a : b, '')
           const end = w.end || w.start + 0.5
           
-          if (chunkStart < totalDuration) {
+          if (chunkStart < totalDuration && chunkStart >= 0) {
             subtitleClips.push({
               asset: {
                 type: 'html',
-                html: `<div style="font-family:'Montserrat','Arial Black',sans-serif;font-size:44px;font-weight:900;color:white;text-align:center;text-shadow:3px 3px 8px rgba(0,0,0,0.95),-2px -2px 4px rgba(0,0,0,0.6);line-height:1.15;padding:0 24px;word-wrap:break-word;">${text.replace(longest.toUpperCase(), `<span style="color:#FFD700;font-size:54px;">${longest.toUpperCase()}</span>`)}</div>`,
-                width: 540,
-                height: 140,
+                html: `<div style="font-family:'Montserrat','Arial Black',sans-serif;font-size:48px;font-weight:900;color:white;text-align:center;text-shadow:4px 4px 10px rgba(0,0,0,0.95),-2px -2px 6px rgba(0,0,0,0.7);line-height:1.1;padding:0 30px;word-wrap:break-word;letter-spacing:1px;">${text.replace(longest.toUpperCase(), `<span style="color:#FFD700;font-size:58px;text-shadow:4px 4px 12px rgba(255,215,0,0.4);">${longest.toUpperCase()}</span>`)}</div>`,
+                width: 580,
+                height: 160,
               },
-              start: Math.min(chunkStart, totalDuration - 0.3),
-              length: Math.min(end - chunkStart + 0.2, totalDuration - chunkStart),
+              start: Math.max(0, Math.min(chunkStart, totalDuration - 0.3)),
+              length: Math.max(0.3, Math.min(end - chunkStart + 0.15, totalDuration - chunkStart)),
               position: 'bottom',
-              offset: { y: 0.12 },
+              offset: { y: 0.1 },
             })
           }
           chunkWords = []
-          chunkEmphasis = ''
         }
       }
-    } else if (subs.length > 0) {
-      // Block-level subtitles (fallback from GPT)
+    } else if (subs.length > 0 && subs[0].text) {
+      // Block-level subtitles (GPT fallback)
       for (const sub of subs) {
         if (!sub.text || sub.start >= totalDuration) continue
         const text = sub.text.toUpperCase()
@@ -88,25 +90,25 @@ export async function POST(req: NextRequest) {
         subtitleClips.push({
           asset: {
             type: 'html',
-            html: `<div style="font-family:'Montserrat','Arial Black',sans-serif;font-size:44px;font-weight:900;color:white;text-align:center;text-shadow:3px 3px 8px rgba(0,0,0,0.95);line-height:1.15;padding:0 24px;">${emphasis && text.includes(emphasis) ? text.replace(emphasis, `<span style="color:#FFD700;font-size:54px;">${emphasis}</span>`) : text}</div>`,
-            width: 540,
-            height: 140,
+            html: `<div style="font-family:'Montserrat','Arial Black',sans-serif;font-size:48px;font-weight:900;color:white;text-align:center;text-shadow:4px 4px 10px rgba(0,0,0,0.95);line-height:1.1;padding:0 30px;letter-spacing:1px;">${emphasis && text.includes(emphasis) ? text.replace(emphasis, `<span style="color:#FFD700;font-size:58px;">${emphasis}</span>`) : text}</div>`,
+            width: 580,
+            height: 160,
           },
-          start: Math.min(sub.start, totalDuration - 0.3),
-          length: Math.min((sub.end || sub.start + 2.5) - sub.start, totalDuration - sub.start),
+          start: Math.max(0, Math.min(sub.start, totalDuration - 0.3)),
+          length: Math.max(0.3, Math.min((sub.end || sub.start + 2) - sub.start, totalDuration - sub.start)),
           position: 'bottom',
-          offset: { y: 0.12 },
+          offset: { y: 0.1 },
         })
       }
     }
 
-    // AUDIO TRACK — voiceover from ElevenLabs
+    // AUDIO TRACK — voiceover (only for narrator modes, lip-sync already has audio in video)
     const audioTrack: any[] = []
-    if (audioBase64) {
+    if (audioUrl && !isCharacterMode) {
       audioTrack.push({
         asset: {
           type: 'audio',
-          src: `data:audio/mpeg;base64,${audioBase64}`,
+          src: audioUrl,
           volume: 1,
         },
         start: 0,
@@ -116,11 +118,11 @@ export async function POST(req: NextRequest) {
 
     const timeline: any = {
       tracks: [
-        // Subtitles on top
+        // Layer 1 (top): Subtitles
         ...(subtitleClips.length > 0 ? [{ clips: subtitleClips }] : []),
-        // Video clips
+        // Layer 2: Video clips
         { clips: trackClips },
-        // Voiceover audio
+        // Layer 3 (bottom): Voiceover audio (narrator modes only)
         ...(audioTrack.length > 0 ? [{ clips: audioTrack }] : []),
       ],
     }
@@ -135,7 +137,7 @@ export async function POST(req: NextRequest) {
       },
     }
 
-    console.log('[Shotstack] Submitting:', validClips.length, 'clips,', subtitleClips.length, 'subtitles,', totalDuration, 'seconds')
+    console.log('[Shotstack] Render:', validClips.length, 'clips,', subtitleClips.length, 'subs,', audioTrack.length > 0 ? 'with audio' : 'no audio,', Math.round(totalDuration), 's,', productionMode)
 
     const renderRes = await fetch('https://api.shotstack.io/v1/render', {
       method: 'POST',
@@ -145,7 +147,7 @@ export async function POST(req: NextRequest) {
 
     if (!renderRes.ok) {
       const err = await renderRes.text()
-      console.error('[Shotstack] Error:', err.slice(0, 300))
+      console.error('[Shotstack] Error:', err.slice(0, 400))
       return NextResponse.json({ error: `Shotstack: ${err.slice(0, 200)}` }, { status: 500 })
     }
 
@@ -156,9 +158,11 @@ export async function POST(req: NextRequest) {
       mode: 'shotstack',
       clipCount: validClips.length,
       subtitleCount: subtitleClips.length,
+      hasAudio: audioTrack.length > 0,
       totalDuration,
     })
   } catch (error: any) {
+    console.error('[Shotstack] Exception:', error.message)
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 }

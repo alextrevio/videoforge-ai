@@ -411,7 +411,25 @@ export function AppProvider({ children, userId }: { children: ReactNode; userId?
         let finalVideoUrl: string | null = null
         const videoClips = aiClips.filter((c: any) => c.videoUrl)
         if (videoClips.length > 0) {
-          updateVid({ status: 'review' as VideoStatus, progress: 80, renderData: { renderStatus: 'rendering final MP4...' } })
+          updateVid({ status: 'review' as VideoStatus, progress: 80, renderData: { renderStatus: 'preparing final render...' } })
+
+          // Upload audio to get a public URL for Shotstack
+          let audioPublicUrl: string | null = null
+          if (voiceData.audioBase64 && !nicheStyle.useLipSync) {
+            try {
+              const uploadRes = await fetch('/api/generate/upload-audio', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ audioBase64: voiceData.audioBase64 }),
+              })
+              if (uploadRes.ok) {
+                const uploadData = await uploadRes.json()
+                audioPublicUrl = uploadData.audioUrl
+                console.log('[VideoForge] Audio uploaded for Shotstack:', uploadData.mode)
+              }
+            } catch {}
+          }
+
+          updateVid({ renderData: { renderStatus: 'rendering final MP4...' } })
           try {
             const concatRes = await fetch('/api/generate/concat', {
               method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -419,8 +437,9 @@ export function AppProvider({ children, userId }: { children: ReactNode; userId?
                 clips: videoClips.map((c: any) => ({ videoUrl: c.videoUrl, duration: c.duration || 5 })),
                 title: video.title,
                 subtitles: voiceData.wordTimestamps?.length > 0 ? voiceData.wordTimestamps : (subData.subtitles || []),
-                audioBase64: voiceData.audioBase64 || null,
+                audioUrl: audioPublicUrl,
                 audioDuration: voiceData.audioDuration || 0,
+                productionMode: nicheStyle.productionMode,
               })
             })
             if (concatRes.ok) {

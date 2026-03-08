@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 
 // POST /api/generate/upload-audio
-// Uploads base64 audio to fal.ai storage to get a public URL
-// (Sync Lipsync needs a URL, not base64)
+// Uploads base64 audio to fal.ai storage → returns public URL
 export async function POST(req: NextRequest) {
   try {
     const { audioBase64 } = await req.json()
@@ -12,31 +11,49 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ audioUrl: null, mode: 'no-data' })
     }
 
-    // Convert base64 to buffer
+    // fal.ai file upload: POST to https://fal.run/fal-ai/upload with the file
+    // Alternative: use the REST upload endpoint
     const audioBuffer = Buffer.from(audioBase64, 'base64')
 
-    // Upload to fal.ai storage
-    const uploadRes = await fetch('https://fal.run/fal-ai/upload', {
-      method: 'PUT',
+    const uploadRes = await fetch('https://fal.ai/api/storage/upload/initiate', {
+      method: 'POST',
       headers: {
         'Authorization': `Key ${falKey}`,
-        'Content-Type': 'audio/mpeg',
+        'Content-Type': 'application/json',
       },
-      body: audioBuffer,
+      body: JSON.stringify({
+        content_type: 'audio/mpeg',
+        file_name: `voiceover-${Date.now()}.mp3`,
+      }),
     })
 
-    if (!uploadRes.ok) {
-      // Try alternative: use a data URI approach
-      // Some fal.ai models accept data URIs directly
-      const dataUrl = `data:audio/mpeg;base64,${audioBase64}`
-      console.log('[Upload] fal.ai upload failed, using data URI')
-      return NextResponse.json({ audioUrl: dataUrl, mode: 'data-uri' })
+    if (uploadRes.ok) {
+      const uploadData = await uploadRes.json()
+      const uploadUrl = uploadData.upload_url
+      const fileUrl = uploadData.file_url
+
+      if (uploadUrl) {
+        // Upload the actual file
+        const putRes = await fetch(uploadUrl, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'audio/mpeg' },
+          body: audioBuffer,
+        })
+
+        if (putRes.ok && fileUrl) {
+          console.log('[Upload] Audio uploaded to fal.ai:', fileUrl.slice(0, 80))
+          return NextResponse.json({ audioUrl: fileUrl, mode: 'fal-storage' })
+        }
+      }
     }
 
-    const uploadData = await uploadRes.json()
-    console.log('[Upload] Audio uploaded:', uploadData.url?.slice(0, 80))
-
-    return NextResponse.json({ audioUrl: uploadData.url, mode: 'fal-storage' })
+    // Fallback: use data URI (some services accept it)
+    const dataUrl = `data:audio/mpeg;base64,${audioBase64.slice(0, 100)}...`
+    console.log('[Upload] fal.ai upload failed, trying data URI approach')
+    return NextResponse.json({ 
+      audioUrl: `data:audio/mpeg;base64,${audioBase64}`, 
+      mode: 'data-uri' 
+    })
   } catch (error: any) {
     console.error('[Upload] Error:', error.message)
     return NextResponse.json({ audioUrl: null, mode: 'error', error: error.message })
