@@ -24,6 +24,10 @@ export async function POST(req: NextRequest) {
 
     const numScenes = sceneDescriptions.length || 4
 
+    const productionMode = nicheStyle?.productionMode || 'cinematic-narrator'
+    const isCharacterMode = productionMode === 'character-lipsync'
+    const characterDesc = nicheStyle?.characterPrompt || ''
+
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
@@ -36,26 +40,38 @@ export async function POST(req: NextRequest) {
             role: 'system',
             content: `You are a VISUAL DIRECTOR creating ${numScenes} video generation prompts.
 
+PRODUCTION MODE: ${isCharacterMode ? 'CHARACTER TALKING TO CAMERA' : 'CINEMATIC FOOTAGE WITH NARRATION'}
+
 STYLE: ${videoStyle}
 COLOR PALETTE: ${colorPalette}
 CAMERA: ${cameraStyle}
 
+${isCharacterMode ? `CHARACTER MODE RULES:
+- EVERY prompt shows the SAME character in a CLOSE-UP FRONT-FACING shot
+- Character description: ${characterDesc}
+- The character is ALWAYS looking at the camera
+- Only the CHARACTER'S EXPRESSION changes between scenes (happy, surprised, serious, excited)
+- Background can change slightly but character stays the same
+- Think: TikTok talking head video, not a movie
+- Format: "[character description], [expression], [background], [lighting]"
+` : `NARRATOR MODE RULES:
+- Each prompt shows a DIFFERENT cinematic scene matching the narration
+- NO characters looking at camera — this is footage with a voice-over
+- Each scene should be visually distinct but maintain the same color palette
+- Include camera movement, lighting, and atmospheric details
+- Think: documentary or cinematic b-roll, not talking head
+- Format: "[scene description], [camera movement], [lighting], [atmosphere]"
+`}
 EVERY prompt MUST:
 - Start with: "${prefix}"
 - Be in ENGLISH only
 - Be 2-3 sentences, max 300 characters
-- Maintain the SAME characters and visual style across ALL scenes
-- Include specific camera movement and lighting
-
-${videoStyle.includes('Pixar') || videoStyle.includes('animation') ? 
-  'CHARACTER DESIGN: Define one consistent main character with specific features (colors, shape, size, clothing) that appears in EVERY scene.' :
-  'VISUAL CONSISTENCY: Maintain the same visual tone, color grading, and atmosphere across all scenes.'}
 
 Niche: ${niche} | Title: "${title}"
 
 Respond with JSON:
 {
-  "character": "Main character/subject description (consistent across scenes)",
+  "character": "${isCharacterMode ? 'Exact character description used in every prompt' : 'N/A'}",
   "style": "Visual style summary",
   "prompts": ["scene 1 prompt", "scene 2 prompt", ...]
 }`

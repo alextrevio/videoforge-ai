@@ -16,6 +16,10 @@ export async function POST(req: NextRequest) {
     const narrationStyle = nicheStyle?.narration || 'An engaging narrator'
     const musicMood = nicheStyle?.musicMood || 'cinematic ambient'
 
+    const productionMode = nicheStyle?.productionMode || 'cinematic-narrator'
+    const isCharacterMode = productionMode === 'character-lipsync'
+    const characterPrompt = nicheStyle?.characterPrompt || ''
+
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
@@ -26,40 +30,40 @@ export async function POST(req: NextRequest) {
         messages: [
           {
             role: 'system',
-            content: `You are a MASTER VIDEO SCRIPTWRITER. Your style: ${tone}
+            content: `You are a MASTER VIDEO SCRIPTWRITER for viral short videos. Your style: ${tone}
+
+PRODUCTION MODE: ${isCharacterMode ? 'CHARACTER TALKING TO CAMERA — A 3D animated character speaks directly to the viewer in a monologue. Write as if the character is SPEAKING to the audience. Use first person. The character is expressive, uses rhetorical questions, and reacts emotionally.' : 'NARRATOR OVER FOOTAGE — A narrator speaks while cinematic footage plays. The narration describes what we see. Write vivid visual descriptions that will become video prompts.'}
 
 RULES:
 - Write in Spanish (${lang || 'es-MX'})
 - Video duration: ${durSec} seconds total
-- You MUST create EXACTLY ${numScenes} scenes, each ~${sceneDur} seconds
+- Create EXACTLY ${numScenes} scenes of ~${sceneDur}s each
 - Niche: ${niche}
 - Narration style: ${narrationStyle}
 - Music mood: ${musicMood}
-
-SCENE STRUCTURE — EACH SCENE MUST INCLUDE:
-  • NARRATION: ${narrationStyle}
-  • DIALOGUE: Characters speaking (if fits the niche)
-  • EMOTION: What the audience should FEEL
-  • VISUAL: Detailed description of what we SEE (this becomes the AI video prompt)
-  • SOUND: Background sounds/music cues
+${isCharacterMode ? `- CHARACTER: The speaker is a 3D animated character. Write their dialogue as a monologue to camera.
+- Include emotional reactions: surprise, excitement, seriousness, humor
+- Use direct address: "¿Sabían que...?", "Escuchen esto...", "No van a creer..."` : `- VISUAL FOCUS: Each scene must describe what the viewer SEES in cinematic detail
+- The narrator speaks OVER the footage, not as a character in frame
+- Include atmosphere, lighting, and camera movement in visual descriptions`}
 
 NARRATIVE FLOW (${numScenes} scenes):
-  • Scene 1: HOOK — grab attention instantly, introduce world/character
-  • Scenes 2-${Math.max(numScenes-2, 2)}: DEVELOPMENT — each scene advances the story, builds tension or curiosity
-  • Scene ${numScenes-1}: CLIMAX — peak moment, biggest reveal or emotion
-  • Scene ${numScenes}: RESOLUTION — satisfying ending, call to action
+  • Scene 1: HOOK — ${isCharacterMode ? 'character grabs attention with a bold statement or question' : 'dramatic opening shot with narrator hook'}
+  • Scenes 2-${Math.max(numScenes-2, 2)}: DEVELOPMENT — each scene builds tension or curiosity
+  • Scene ${numScenes-1}: CLIMAX — peak moment
+  • Scene ${numScenes}: RESOLUTION — satisfying ending + call to action
 
-CRITICAL: Each scene must CONNECT to the next. The viewer must feel a continuous story, not random clips. Use transitions like "but then...", "meanwhile...", "what happened next changed everything..."
+CRITICAL: Each scene CONNECTS to the next. Continuous story, not random clips.
 
 Respond with JSON:
 {
-  "script": "Full script with narration and dialogue",
+  "script": "Full script ${isCharacterMode ? '(character monologue)' : '(narration over footage)'}",
   "scenes": [
     {
-      "narration": "Narrator text",
-      "dialogue": "Character dialogue (if any)",
-      "emotion": "target emotion",
-      "visual": "Detailed visual description for AI video generation",
+      "narration": "${isCharacterMode ? 'What the character SAYS to camera' : 'What the narrator SAYS over the footage'}",
+      "dialogue": "${isCharacterMode ? 'Same as narration (character speaking)' : 'N/A for narrator mode'}",
+      "emotion": "target emotion for this moment",
+      "visual": "${isCharacterMode ? 'Character expression and gesture (e.g. wide eyes, leaning forward, pointing)' : 'Detailed cinematic scene description for AI video generation'}",
       "sound": "Background sounds/music"
     }
   ],

@@ -163,7 +163,7 @@ export function AppProvider({ children, userId }: { children: ReactNode; userId?
         // Load niche-specific style (Pixar for infantil, stock for curiosidades, etc.)
         const { getNicheStyle } = await import('./nicheStyles')
         const nicheStyle = getNicheStyle(niche)
-        console.log('[VideoForge] Niche:', niche, '| Style:', nicheStyle.videoStyle, '| Stock:', nicheStyle.useStock, '| Scene duration:', nicheStyle.sceneDuration)
+        console.log('[VideoForge] Niche:', niche, '| Mode:', nicheStyle.productionMode, '| AI Video:', nicheStyle.useAIVideo, '| LipSync:', nicheStyle.useLipSync)
 
         // STEP 1: SCRIPT (adapted to niche tone and style)
         updateVid({ status: 'script' as VideoStatus, progress: 10, renderData: { renderStatus: 'writing story...' } })
@@ -227,7 +227,7 @@ export function AppProvider({ children, userId }: { children: ReactNode; userId?
         const totalScenes = Math.min(visualPrompts.length, 8)
         const clipDuration = nicheStyle.sceneDuration || '5'
 
-        if (nicheStyle.useStock) {
+        if (!nicheStyle.useAIVideo) {
           // STOCK FOOTAGE for niches like curiosidades, motivación, tech, lifestyle, finanzas
           console.log('[VideoForge] Using stock footage for niche:', niche)
           try {
@@ -305,8 +305,8 @@ export function AppProvider({ children, userId }: { children: ReactNode; userId?
             console.log(`[VideoForge] AI Video done: ${aiClips.length}/${totalScenes} clips generated`)
           }
 
-          // STEP 3.5: LIP-SYNC (apply audio to video clips)
-          if (aiClips.length > 0 && voiceData.audioBase64 && !nicheStyle.useStock) {
+          // STEP 3.5: LIP-SYNC (only for character-lipsync production mode)
+          if (aiClips.length > 0 && voiceData.audioBase64 && nicheStyle.useLipSync) {
             updateVid({ progress: 62, renderData: { renderStatus: 'uploading audio for lip-sync...' } })
             
             // Upload audio to get a public URL
@@ -462,8 +462,8 @@ export function AppProvider({ children, userId }: { children: ReactNode; userId?
             steps: {
               script: { length: finalScript.length },
               voiceover: { mode: voiceData.mode || 'none', words: voiceData.wordCount || 0, duration: Math.round(voiceData.audioDuration || 0) },
-              aiVideo: { clipCount: aiClips.length, mode: videoClips.length > 0 ? (nicheStyle.useStock ? 'pexels' : 'kling') : 'pexels-fallback' },
-              lipsync: { mode: (!nicheStyle.useStock && voiceData.audioBase64) ? 'sync-lipsync' : 'none' },
+              aiVideo: { clipCount: aiClips.length, mode: videoClips.length > 0 ? (nicheStyle.useAIVideo ? 'kling' : 'pexels') : 'pexels-fallback' },
+              lipsync: { mode: nicheStyle.useLipSync && voiceData.audioBase64 ? 'sync-lipsync' : 'none' },
               subtitles: { mode: voiceData.wordTimestamps?.length > 0 ? 'word-sync' : (subData.mode || 'basic'), count: voiceData.wordTimestamps?.length || (subData.subtitles || []).length },
               concat: { mode: finalVideoUrl ? 'shotstack' : 'clips-only', videoUrl: finalVideoUrl },
             },
