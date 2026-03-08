@@ -757,8 +757,9 @@ export default function VideoForgeApp({ user, onLogout }: VFProps) {
                     <div style={{marginTop:14,background:'var(--bg2)',borderRadius:10,padding:10}}>
                       {[
                         {icon:'📝',label:'Guión',detail:`${v.renderData.steps?.script?.length||0} chars`},
+                        {icon:'🎙️',label:'Narración',detail:v.renderData.steps?.voiceover?.mode==='elevenlabs'?`✅ ${v.renderData.steps.voiceover.duration}s`:'—'},
                         {icon:'🎬',label:'Video IA',detail:`${v.renderData.steps?.aiVideo?.clipCount||0} clips · ${v.renderData.steps?.aiVideo?.mode||'—'}`},
-                        {icon:'💬',label:'Subtítulos',detail:`${v.renderData.steps?.subtitles?.count||0} palabras`},
+                        {icon:'💬',label:'Subtítulos',detail:`${v.renderData.steps?.subtitles?.count||0} · ${v.renderData.steps?.subtitles?.mode||'—'}`},
                         {icon:'🎞️',label:'MP4 Final',detail:v.renderData.steps?.concat?.mode==='shotstack'?'✅ Renderizado':'📋 Clips individuales'},
                       ].map((s,i)=>
                         <div key={i} style={{display:'flex',alignItems:'center',gap:8,padding:'4px 0',borderBottom:i<3?'1px solid rgba(30,30,42,0.5)':'none',fontSize:11}}>

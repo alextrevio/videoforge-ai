@@ -188,11 +188,27 @@ export function AppProvider({ children, userId }: { children: ReactNode; userId?
             .split(/\n\n+/)
             .map((s: string) => s.trim())
             .filter((s: string) => s.length > 15)
-            .slice(0, 4)
+            .slice(0, 8)
         }
         if (scriptScenes.length === 0) scriptScenes = [finalScript.slice(0, 200)]
 
-        // STEP 2: VISUAL STORYBOARD (Pixar/Disney animation director)
+        // STEP 1.5: VOICEOVER (ElevenLabs TTS with word timestamps)
+        updateVid({ status: 'narration' as VideoStatus, progress: 28, renderData: { renderStatus: 'generating voiceover...' } })
+        let voiceData: any = { audioBase64: null, wordTimestamps: [], audioDuration: 0 }
+        try {
+          const voRes = await fetch('/api/generate/voiceover', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ script: finalScript, niche, lang: sRef.lang || 'es-MX' }),
+          })
+          if (voRes.ok) {
+            voiceData = await voRes.json()
+            console.log('[VideoForge] Voiceover:', voiceData.mode, '|', voiceData.wordCount, 'words |', Math.round(voiceData.audioDuration || 0), 'seconds')
+          }
+        } catch (err: any) {
+          console.error('[VideoForge] Voiceover error:', err.message)
+        }
+
+        // STEP 2: VISUAL STORYBOARD
         updateVid({ status: 'visuals' as VideoStatus, progress: 30, renderData: { renderStatus: 'designing animation storyboard...' } })
         let visualPrompts: string[] = scriptScenes.map((s: string) => `${nicheStyle.promptPrefix}, ${s.slice(0, 80)}`)
         try {
@@ -318,7 +334,13 @@ export function AppProvider({ children, userId }: { children: ReactNode; userId?
           try {
             const concatRes = await fetch('/api/generate/concat', {
               method: 'POST', headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ clips: videoClips.map((c: any) => ({ videoUrl: c.videoUrl, duration: c.duration || 5 })), title: video.title, subtitles: subData.subtitles || [] })
+              body: JSON.stringify({
+                clips: videoClips.map((c: any) => ({ videoUrl: c.videoUrl, duration: c.duration || 5 })),
+                title: video.title,
+                subtitles: voiceData.wordTimestamps?.length > 0 ? voiceData.wordTimestamps : (subData.subtitles || []),
+                audioBase64: voiceData.audioBase64 || null,
+                audioDuration: voiceData.audioDuration || 0,
+              })
             })
             if (concatRes.ok) {
               const concatData = await concatRes.json()
@@ -358,8 +380,9 @@ export function AppProvider({ children, userId }: { children: ReactNode; userId?
             renderStatus: finalVideoUrl ? 'complete-mp4' : 'complete',
             steps: {
               script: { length: finalScript.length },
+              voiceover: { mode: voiceData.mode || 'none', words: voiceData.wordCount || 0, duration: Math.round(voiceData.audioDuration || 0) },
               aiVideo: { clipCount: aiClips.length, mode: videoClips.length > 0 ? 'kling' : 'pexels-fallback' },
-              subtitles: { mode: subData.mode, count: (subData.subtitles || []).length },
+              subtitles: { mode: voiceData.wordTimestamps?.length > 0 ? 'word-sync' : (subData.mode || 'basic'), count: voiceData.wordTimestamps?.length || (subData.subtitles || []).length },
               concat: { mode: finalVideoUrl ? 'shotstack' : 'clips-only', videoUrl: finalVideoUrl },
             },
             composition: { clips: aiClips, subtitles: subData.subtitles, finalVideoUrl }
