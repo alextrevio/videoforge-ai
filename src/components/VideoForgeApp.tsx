@@ -759,6 +759,7 @@ export default function VideoForgeApp({ user, onLogout }: VFProps) {
                         {icon:'📝',label:'Guión',detail:`${v.renderData.steps?.script?.length||0} chars`},
                         {icon:'🎙️',label:'Narración',detail:v.renderData.steps?.voiceover?.mode==='elevenlabs'?`✅ ${v.renderData.steps.voiceover.duration}s`:'—'},
                         {icon:'🎬',label:'Video IA',detail:`${v.renderData.steps?.aiVideo?.clipCount||0} clips · ${v.renderData.steps?.aiVideo?.mode||'—'}`},
+                        {icon:'👄',label:'Lip-Sync',detail:v.renderData.steps?.lipsync?.mode==='sync-lipsync'?'✅ Sincronizado':'—'},
                         {icon:'💬',label:'Subtítulos',detail:`${v.renderData.steps?.subtitles?.count||0} · ${v.renderData.steps?.subtitles?.mode||'—'}`},
                         {icon:'🎞️',label:'MP4 Final',detail:v.renderData.steps?.concat?.mode==='shotstack'?'✅ Renderizado':'📋 Clips individuales'},
                       ].map((s,i)=>

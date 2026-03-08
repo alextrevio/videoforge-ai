@@ -304,6 +304,87 @@ export function AppProvider({ children, userId }: { children: ReactNode; userId?
             aiClips = completed
             console.log(`[VideoForge] AI Video done: ${aiClips.length}/${totalScenes} clips generated`)
           }
+
+          // STEP 3.5: LIP-SYNC (apply audio to video clips)
+          if (aiClips.length > 0 && voiceData.audioBase64 && !nicheStyle.useStock) {
+            updateVid({ progress: 62, renderData: { renderStatus: 'uploading audio for lip-sync...' } })
+            
+            // Upload audio to get a public URL
+            let audioUrl: string | null = null
+            try {
+              const uploadRes = await fetch('/api/generate/upload-audio', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ audioBase64: voiceData.audioBase64 }),
+              })
+              if (uploadRes.ok) {
+                const uploadData = await uploadRes.json()
+                audioUrl = uploadData.audioUrl
+                console.log('[VideoForge] Audio uploaded:', uploadData.mode)
+              }
+            } catch {}
+
+            if (audioUrl) {
+              updateVid({ progress: 64, renderData: { renderStatus: 'applying lip-sync to clips...' } })
+              
+              // Submit lip-sync for each clip
+              const lipsyncSubmissions: any[] = []
+              for (const clip of aiClips) {
+                if (!clip.videoUrl) continue
+                try {
+                  const lsRes = await fetch('/api/generate/lipsync', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ videoUrl: clip.videoUrl, audioUrl }),
+                  })
+                  if (lsRes.ok) {
+                    const lsData = await lsRes.json()
+                    if (lsData.mode === 'queued') {
+                      lipsyncSubmissions.push({ sceneIndex: clip.sceneIndex, ...lsData })
+                      console.log(`[VideoForge] LipSync ${clip.sceneIndex + 1} submitted`)
+                    }
+                  }
+                } catch {}
+              }
+
+              // Poll lip-sync results
+              if (lipsyncSubmissions.length > 0) {
+                const lsPending = new Map(lipsyncSubmissions.map(s => [s.sceneIndex, s]))
+                let lsAttempts = 0
+
+                while (lsPending.size > 0 && lsAttempts < 40) { // 40 * 5s = ~3 min
+                  await new Promise(r => setTimeout(r, 5000))
+                  lsAttempts++
+
+                  for (const [idx, sub] of Array.from(lsPending.entries())) {
+                    try {
+                      const pollRes = await fetch('/api/generate/lipsync/status', {
+                        method: 'POST', headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ statusUrl: sub.statusUrl, responseUrl: sub.responseUrl }),
+                      })
+                      if (pollRes.ok) {
+                        const pollData = await pollRes.json()
+                        if (pollData.status === 'completed' && pollData.videoUrl) {
+                          console.log(`[VideoForge] LipSync ${idx + 1} READY:`, pollData.videoUrl.slice(0, 60))
+                          // Replace original clip with lip-synced version
+                          const clipIdx = aiClips.findIndex((c: any) => c.sceneIndex === idx)
+                          if (clipIdx >= 0) aiClips[clipIdx].videoUrl = pollData.videoUrl
+                          lsPending.delete(idx)
+                        } else if (pollData.status === 'failed') {
+                          console.error(`[VideoForge] LipSync ${idx + 1} FAILED — keeping original`)
+                          lsPending.delete(idx)
+                        }
+                      }
+                    } catch {}
+                  }
+
+                  updateVid({
+                    progress: 64 + Math.round(((lipsyncSubmissions.length - lsPending.size) / lipsyncSubmissions.length) * 5),
+                    renderData: { renderStatus: `lip-sync: ${lipsyncSubmissions.length - lsPending.size}/${lipsyncSubmissions.length} clips synced` }
+                  })
+                }
+                console.log(`[VideoForge] LipSync done: ${lipsyncSubmissions.length - lsPending.size}/${lipsyncSubmissions.length} clips synced`)
+              }
+            }
+          }
         }
 
         // Fallback to Pexels if nothing generated
@@ -381,7 +462,8 @@ export function AppProvider({ children, userId }: { children: ReactNode; userId?
             steps: {
               script: { length: finalScript.length },
               voiceover: { mode: voiceData.mode || 'none', words: voiceData.wordCount || 0, duration: Math.round(voiceData.audioDuration || 0) },
-              aiVideo: { clipCount: aiClips.length, mode: videoClips.length > 0 ? 'kling' : 'pexels-fallback' },
+              aiVideo: { clipCount: aiClips.length, mode: videoClips.length > 0 ? (nicheStyle.useStock ? 'pexels' : 'kling') : 'pexels-fallback' },
+              lipsync: { mode: (!nicheStyle.useStock && voiceData.audioBase64) ? 'sync-lipsync' : 'none' },
               subtitles: { mode: voiceData.wordTimestamps?.length > 0 ? 'word-sync' : (subData.mode || 'basic'), count: voiceData.wordTimestamps?.length || (subData.subtitles || []).length },
               concat: { mode: finalVideoUrl ? 'shotstack' : 'clips-only', videoUrl: finalVideoUrl },
             },
